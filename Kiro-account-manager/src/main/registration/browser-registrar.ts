@@ -152,6 +152,42 @@ async function waitForPageLoad(win: BrowserWindow, extraMs = 1500): Promise<void
   await randomDelay(extraMs, extraMs + 1000)
 }
 
+async function getFatalRegistrationPageError(win: BrowserWindow): Promise<string | null> {
+  if (!isWindowUsable(win)) return null
+  return win.webContents
+    .executeJavaScript(
+      `
+      (function() {
+        const text = (document.body && document.body.innerText) || '';
+        const heading = Array.from(document.querySelectorAll('h1, h2, [role="heading"]'))
+          .map((el) => (el.textContent || '').trim())
+          .join('\\n');
+        if (/sign\\s*in\\s*with\\s*your\\s*aws\\s*builder\\s*id/i.test(heading) ||
+            /sign\\s*in\\s*with\\s*your\\s*aws\\s*builder\\s*id/i.test(text)) {
+          return 'AWS Builder ID sign-in page detected instead of signup';
+        }
+        if (/\\berror\\b[\\s\\S]*sorry,\\s*there\\s*was\\s*an\\s*error\\s*processing\\s*your\\s*request\\.\\s*please\\s*try\\s*again\\./i.test(text)) {
+          return 'AWS request processing error page detected';
+        }
+        if (/it(?:'|’)?s\\s*not\\s*you,?\\s*it(?:'|’)?s\\s*us[\\s\\S]*we\\s*couldn(?:'|’)?t\\s*complete\\s*your\\s*request\\s*right\\s*now\\.\\s*please\\s*try\\s*again\\s*later\\./i.test(text)) {
+          return 'AWS could not complete request page detected';
+        }
+        return null;
+      })()
+    `
+    )
+    .catch(() => null)
+}
+
+async function failOnFatalRegistrationPageError(
+  win: BrowserWindow,
+  context: string
+): Promise<void> {
+  const error = await getFatalRegistrationPageError(win)
+  if (!error) return
+  throw new Error(`${error}${context ? ` (${context})` : ''}`)
+}
+
 /** Dismiss cookie banner then click selector. Retries 3x. */
 async function clickWithCookieDismiss(
   win: BrowserWindow,
@@ -174,9 +210,23 @@ async function clickWithCookieDismiss(
   }
 
   await dismissCookies()
-  if (!(await waitForSelector(win, selector, timeoutMs))) return false
+  const deadline = Date.now() + timeoutMs
+  let found = false
+  while (Date.now() < deadline && isWindowUsable(win)) {
+    await failOnFatalRegistrationPageError(win, `waiting for ${selector}`)
+    found = await win.webContents
+      .executeJavaScript(`!!document.querySelector(${JSON.stringify(selector)})`)
+      .catch(() => false)
+    if (found) break
+    await sleep(500)
+  }
+  if (!found) {
+    await failOnFatalRegistrationPageError(win, `selector not found: ${selector}`)
+    return false
+  }
 
   for (let i = 0; i < 3; i++) {
+    await failOnFatalRegistrationPageError(win, `before clicking ${selector}`)
     if (!isWindowUsable(win)) return false
     await dismissCookies()
     await win.webContents
@@ -191,6 +241,7 @@ async function clickWithCookieDismiss(
       .catch(() => {})
     await sleep(400)
     if (!isWindowUsable(win)) return true
+    await failOnFatalRegistrationPageError(win, `after clicking ${selector}`)
 
     // If element disappeared, click worked
     const stillThere = await win.webContents
@@ -209,7 +260,20 @@ async function typeInto(
   text: string,
   timeoutMs = 15000
 ): Promise<boolean> {
-  if (!(await waitForSelector(win, selector, timeoutMs)) || !isWindowUsable(win)) return false
+  const deadline = Date.now() + timeoutMs
+  let found = false
+  while (Date.now() < deadline && isWindowUsable(win)) {
+    await failOnFatalRegistrationPageError(win, `waiting to type into ${selector}`)
+    found = await win.webContents
+      .executeJavaScript(`!!document.querySelector(${JSON.stringify(selector)})`)
+      .catch(() => false)
+    if (found) break
+    await sleep(500)
+  }
+  if (!found || !isWindowUsable(win)) {
+    await failOnFatalRegistrationPageError(win, `input not found: ${selector}`)
+    return false
+  }
 
   await win.webContents
     .executeJavaScript(
@@ -602,12 +666,15 @@ export class BrowserRegistrar {
   /** Step 1: Accept cookie banner, then wait for email input. */
   private async stepAcceptCookiesAndWaitForEmail(win: BrowserWindow): Promise<void> {
     this.log('[Browser] Waiting for page to load...')
-    await waitForPageLoad(win, 2000)
+    await waitForPageLoad(win, 0)
     if (!isWindowUsable(win)) throw new Error('Registration browser window closed during page load')
     this.log(`[Browser] Page: ${win.webContents.getURL()}`)
 
-    // Accept cookie banner if present (wait up to 10s)
-    const hasBanner = await waitForSelector(win, 'button[data-id="awsccc-cb-btn-accept"]', 10000)
+    // Accept the cookie banner opportunistically, but do not delay email-pool entry waiting for it.
+    // The email should be entered as soon as a fresh registration page is ready.
+    const hasBanner = await win.webContents
+      .executeJavaScript(`!!document.querySelector('button[data-id="awsccc-cb-btn-accept"]')`)
+      .catch(() => false)
     if (hasBanner) {
       await win.webContents
         .executeJavaScript(
@@ -618,13 +685,24 @@ export class BrowserRegistrar {
         )
         .catch(() => {})
       this.log('[Browser] Cookie banner accepted')
-      await randomDelay(800, 1500)
     }
+
+    await failOnFatalRegistrationPageError(win, 'before email input')
 
     // Wait for email input (React SPA may take time to hydrate)
     this.log('[Browser] Waiting for email input...')
-    const emailAppeared = await waitForSelector(win, 'input[placeholder*="@"]', 30000)
+    const emailDeadline = Date.now() + 30000
+    let emailAppeared = false
+    while (Date.now() < emailDeadline && isWindowUsable(win)) {
+      await failOnFatalRegistrationPageError(win, 'waiting for email input')
+      emailAppeared = await win.webContents
+        .executeJavaScript(`!!document.querySelector('input[placeholder*="@"]')`)
+        .catch(() => false)
+      if (emailAppeared) break
+      await sleep(500)
+    }
     if (!emailAppeared) {
+      await failOnFatalRegistrationPageError(win, 'email input not found')
       const body = await win.webContents
         .executeJavaScript(`document.body.innerText.slice(0, 300)`)
         .catch(() => '')
@@ -635,6 +713,7 @@ export class BrowserRegistrar {
 
   /** Step 2: Fill email and click Continue. */
   private async stepFillEmail(win: BrowserWindow, email: string): Promise<void> {
+    await failOnFatalRegistrationPageError(win, 'before email entry')
     this.log(`[Browser] Filling email: ${email}`)
     await typeInto(win, 'input[placeholder*="@"]', email)
     await randomDelay(500, 1000)
@@ -642,13 +721,23 @@ export class BrowserRegistrar {
     // Email page Continue button: data-testid="test-primary-button"
     await clickWithCookieDismiss(win, 'button[data-testid="test-primary-button"]')
     this.log('[Browser] Clicked Continue after email')
-    await waitForPageLoad(win, 2000)
+    await waitForPageLoad(win, 0)
+    const postEmailDeadline = Date.now() + 2500
+    while (Date.now() < postEmailDeadline && isWindowUsable(win)) {
+      await failOnFatalRegistrationPageError(win, 'immediately after email continue')
+      await sleep(250)
+    }
     this.log(`[Browser] After email: ${win.webContents.getURL()}`)
+    await failOnFatalRegistrationPageError(win, 'after email continue')
   }
 
   /** Step 3: Handle signup — click "Create account" if present, fill name, click Continue. */
   private async stepSignup(win: BrowserWindow, fullName: string): Promise<void> {
-    await randomDelay(1500, 3000)
+    const signupSettleDeadline = Date.now() + 1500 + Math.random() * 1500
+    while (Date.now() < signupSettleDeadline && isWindowUsable(win)) {
+      await failOnFatalRegistrationPageError(win, 'waiting for signup page after email')
+      await sleep(250)
+    }
 
     // Click "Create account" / "Sign up" if present
     const createClicked = await win.webContents
@@ -671,9 +760,20 @@ export class BrowserRegistrar {
       await waitForPageLoad(win, 1500)
     }
 
+    await failOnFatalRegistrationPageError(win, 'after create-account click')
+
     // Wait for name input (placeholder is a person name: has space, no @, no digits)
     this.log('[Browser] Waiting for name input...')
-    const nameAppeared = await waitForSelector(win, 'input[placeholder*=" "]', 15000)
+    const nameDeadline = Date.now() + 15000
+    let nameAppeared = false
+    while (Date.now() < nameDeadline && isWindowUsable(win)) {
+      await failOnFatalRegistrationPageError(win, 'waiting for name input')
+      nameAppeared = await win.webContents
+        .executeJavaScript(`!!document.querySelector('input[placeholder*=" "]')`)
+        .catch(() => false)
+      if (nameAppeared) break
+      await sleep(500)
+    }
     if (nameAppeared) {
       const isNameField = await win.webContents
         .executeJavaScript(
@@ -695,6 +795,8 @@ export class BrowserRegistrar {
       }
     }
 
+    await failOnFatalRegistrationPageError(win, 'before sending OTP')
+
     // Capture email-provider baseline before this click triggers the OTP email.
     if (this.emailSvc?.beforeSendCode) {
       this.log('[Browser] Capturing email baseline before sending OTP')
@@ -705,13 +807,27 @@ export class BrowserRegistrar {
     await clickWithCookieDismiss(win, 'button[data-testid="signup-next-button"]')
     this.log('[Browser] Clicked Continue to send OTP')
     await waitForPageLoad(win, 1500)
+    await failOnFatalRegistrationPageError(win, 'after signup continue')
   }
 
   /** Step 4: Wait for OTP input, fill it, click Continue. */
   private async stepFillOTP(win: BrowserWindow, otp: string): Promise<void> {
+    await failOnFatalRegistrationPageError(win, 'before OTP entry')
     this.log('[Browser] Waiting for OTP input...')
-    const otpAppeared = await waitForSelector(win, 'input[placeholder*="digit"]', 30000)
-    if (!otpAppeared) throw new Error('OTP input not found after 30s')
+    const otpDeadline = Date.now() + 30000
+    let otpAppeared = false
+    while (Date.now() < otpDeadline && isWindowUsable(win)) {
+      await failOnFatalRegistrationPageError(win, 'waiting for OTP input')
+      otpAppeared = await win.webContents
+        .executeJavaScript(`!!document.querySelector('input[placeholder*="digit"]')`)
+        .catch(() => false)
+      if (otpAppeared) break
+      await sleep(500)
+    }
+    if (!otpAppeared) {
+      await failOnFatalRegistrationPageError(win, 'OTP input not found')
+      throw new Error('OTP input not found after 30s')
+    }
 
     // Clear any existing value first, then fill
     await win.webContents
@@ -738,12 +854,27 @@ export class BrowserRegistrar {
     this.log('[Browser] OTP submitted')
     // Short wait — don't do full page load wait since we need to check for error on same page
     await sleep(2000)
+    await failOnFatalRegistrationPageError(win, 'after OTP submit')
   }
 
   /** Step 5: Fill password if required. */
   private async stepFillPassword(win: BrowserWindow, password: string): Promise<void> {
-    const hasPwd = await waitForSelector(win, 'input[type="password"]', 5000)
-    if (!hasPwd) return
+    const pwdDeadline = Date.now() + 5000
+    let hasPwd = false
+    while (Date.now() < pwdDeadline && isWindowUsable(win)) {
+      await failOnFatalRegistrationPageError(win, 'waiting for password input')
+      hasPwd = await win.webContents
+        .executeJavaScript(`!!document.querySelector('input[type="password"]')`)
+        .catch(() => false)
+      if (hasPwd) break
+      await sleep(500)
+    }
+    if (!hasPwd) {
+      await failOnFatalRegistrationPageError(win, 'password input not found')
+      return
+    }
+
+    await failOnFatalRegistrationPageError(win, 'before password entry')
 
     this.log('[Browser] Filling password')
 
@@ -831,11 +962,13 @@ export class BrowserRegistrar {
 
     this.log('[Browser] Password submitted')
     await waitForPageLoad(win, 2000)
+    await failOnFatalRegistrationPageError(win, 'after password submit')
   }
 
   private async clickPasswordContinue(win: BrowserWindow): Promise<boolean> {
     const deadline = Date.now() + 30000
     while (Date.now() < deadline && isWindowUsable(win)) {
+      await failOnFatalRegistrationPageError(win, 'waiting for password continue button')
       const clicked = await win.webContents
         .executeJavaScript(
           `
@@ -861,9 +994,14 @@ export class BrowserRegistrar {
       `
         )
         .catch(() => false)
-      if (clicked) return true
+      if (clicked) {
+        await sleep(400)
+        await failOnFatalRegistrationPageError(win, 'after password continue click')
+        return true
+      }
       await sleep(1000)
     }
+    await failOnFatalRegistrationPageError(win, 'password continue button not found')
     return false
   }
 
@@ -1110,6 +1248,7 @@ export class BrowserRegistrar {
         // Step 2: Fill email + Continue
         await this.stepFillEmail(win, email)
         this.checkAborted()
+        await failOnFatalRegistrationPageError(win, 'after email')
 
         // Step 3: Signup flow (create account + name + Continue)
         await this.stepSignup(win, fullName)
@@ -1141,12 +1280,14 @@ export class BrowserRegistrar {
             }
           }
 
-          const otp = await this.emailSvc.waitForCode(120, 3, () => this.aborted)
+          this.log(`[Browser] Waiting up to 30s for OTP (attempt ${attempt})`)
+          const otp = await this.emailSvc.waitForCode(30, 3, () => this.aborted)
           this.log(`[Browser] Got OTP (attempt ${attempt}): ${otp}`)
           this.checkAborted()
 
           await this.stepFillOTP(win, otp)
           this.checkAborted()
+          await failOnFatalRegistrationPageError(win, `after OTP attempt ${attempt}`)
 
           // Check if OTP was rejected
           const hasError = await win.webContents
@@ -1169,11 +1310,13 @@ export class BrowserRegistrar {
         // Step 5: Password if required
         await this.stepFillPassword(win, password)
         this.checkAborted()
+        await failOnFatalRegistrationPageError(win, 'after password step')
 
         // Step 6: Confirm device and allow access
         this.log('[Browser] [9] Confirm device and allow access')
         await this.stepConfirmDevice(win)
         this.checkAborted()
+        await failOnFatalRegistrationPageError(win, 'after confirm device')
       }
 
       // Step 7: Wait for auth code from callback redirect

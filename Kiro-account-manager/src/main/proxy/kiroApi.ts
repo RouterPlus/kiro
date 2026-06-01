@@ -294,8 +294,20 @@ function clonePayload(payload: KiroPayload): KiroPayload {
   return JSON.parse(JSON.stringify(payload)) as KiroPayload
 }
 
+function stringifyJsonAsciiSafe(value: unknown): string {
+  // JSON permits UTF-8 characters directly, but some upstream gateways incorrectly parse
+  // terminal glyphs, line separators or other non-ASCII symbols in request bodies. Escape
+  // every non-ASCII UTF-16 code unit instead of stripping content. Surrogate pairs are
+  // emitted as two escapes (for example, an emoji becomes "\\ud83d\\ude00"), which is
+  // valid JSON and reconstructs the original text when parsed by the provider.
+  return JSON.stringify(value).replace(
+    /[\u007f-\uffff]/g,
+    (character) => `\\u${character.charCodeAt(0).toString(16).padStart(4, '0')}`
+  )
+}
+
 function getPayloadSize(payload: KiroPayload): number {
-  return Buffer.byteLength(JSON.stringify(payload), 'utf8')
+  return Buffer.byteLength(stringifyJsonAsciiSafe(payload), 'utf8')
 }
 
 function appendProxyNote(message: KiroUserInputMessage, note: string): void {
@@ -449,6 +461,51 @@ function compactHistoryMessages(
 
   if (payload.conversationState.history?.length === 0) delete payload.conversationState.history
   return { removed, size }
+}
+
+function recoverRequestBodyInvalidPayload(payload: KiroPayload): void {
+  // Some Kiro upstream variants reject optional request fields with REQUEST_BODY_INVALID.
+  // Retry once with the smallest schema-compatible representation while preserving the
+  // current turn, tools and valid tool-use/tool-result pairs. This is deliberately not a
+  // generic retry: malformed requests must never enter an infinite retry loop.
+  delete payload.additionalModelRequestFields
+
+  const messages = [
+    ...(payload.conversationState.history ?? []),
+    payload.conversationState.currentMessage
+  ]
+  for (const message of messages) {
+    if (message.userInputMessage) {
+      delete message.userInputMessage.cachePoint
+      delete message.userInputMessage.clientCacheConfig
+      const context = message.userInputMessage.userInputMessageContext
+      if (context) {
+        delete context.additionalContext
+        delete context.editorState
+        delete context.shellState
+        delete context.gitState
+        delete context.envState
+      }
+    }
+
+    // Be defensive about fields produced by clients or older proxy versions. Kiro emits
+    // reasoning fields in responses but does not accept them in assistant history.
+    if ('assistantResponseMessage' in message && message.assistantResponseMessage) {
+      const assistant = message.assistantResponseMessage as unknown as Record<string, unknown>
+      delete assistant.reasoningContent
+      delete assistant.reasoning_content
+      delete assistant.cachePoint
+    }
+  }
+
+  const sanitized = sanitizeConversation(messages)
+  payload.conversationState.history = sanitized.slice(0, -1)
+  payload.conversationState.currentMessage = sanitized.at(-1) as KiroCurrentMessage
+  if (payload.conversationState.history.length === 0) delete payload.conversationState.history
+}
+
+function isRequestBodyInvalidError(body: string): boolean {
+  return body.includes('REQUEST_BODY_INVALID') || body.includes('Improperly formed request')
 }
 
 function enforcePayloadSizeLimit(payload: KiroPayload, limitBytes: number): number {
@@ -1542,7 +1599,7 @@ export async function callKiroApiStream(
           .agentTaskType
       }
 
-      const payloadStr = JSON.stringify(requestPayload)
+      let payloadStr = stringifyJsonAsciiSafe(requestPayload)
       const headers = getAuthHeaders(account)
       const currentUserInput = requestPayload.conversationState.currentMessage.userInputMessage
       const historyMessages = requestPayload.conversationState.history ?? []
@@ -1576,8 +1633,8 @@ export async function callKiroApiStream(
       const endpointSignal = createEndpointSignal(signal)
       if (agent) proxyLogger.debug('KiroAPI', `Stream request via proxy to ${endpoint.name}`)
       let response: Response
-      try {
-        response = agent
+      const sendPayload = async (): Promise<Response> => {
+        return agent
           ? ((await undiciFetch(endpoint.url, {
               method: 'POST',
               headers,
@@ -1591,6 +1648,27 @@ export async function callKiroApiStream(
               body: payloadStr,
               signal: endpointSignal.signal
             })
+      }
+      try {
+        response = await sendPayload()
+        if (response.status === 400) {
+          const body = await response.text()
+          if (isRequestBodyInvalidError(body)) {
+            recoverRequestBodyInvalidPayload(requestPayload)
+            payloadStr = stringifyJsonAsciiSafe(requestPayload)
+            console.warn(
+              '[KiroAPI] REQUEST_BODY_INVALID: retrying once with compatibility payload',
+              {
+                endpoint: endpoint.name,
+                payloadSize: payloadStr.length,
+                historyMessages: requestPayload.conversationState.history?.length ?? 0
+              }
+            )
+            response = await sendPayload()
+          } else {
+            throw new Error(`API error ${response.status}: ${body}`)
+          }
+        }
       } finally {
         endpointSignal.cleanup()
       }
@@ -1641,7 +1719,9 @@ export async function callKiroApiStream(
       if (
         lastError.message.includes('API error 400') &&
         (lastError.message.includes('INVALID_MODEL_ID') ||
-          lastError.message.includes('CONTENT_LENGTH_EXCEEDS_THRESHOLD'))
+          lastError.message.includes('CONTENT_LENGTH_EXCEEDS_THRESHOLD') ||
+          lastError.message.includes('REQUEST_BODY_INVALID') ||
+          lastError.message.includes('Improperly formed request'))
       ) {
         onError(lastError)
         return
