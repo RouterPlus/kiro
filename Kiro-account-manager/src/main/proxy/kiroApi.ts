@@ -34,11 +34,29 @@ export function setLogStreamEvents(enabled: boolean): void {
   logStreamEvents = enabled
 }
 
-// Payload 大小限制（KB），用户可在高级设置中调整
-let payloadSizeLimitKB = 1536 // 默认 1.5MB
+// Payload 大小限制（KB），用户可在高级设置中调整。
+// Kiro/CodeWhisperer can reject requests well below this serialized byte size because
+// the upstream limit is based on internal content/token accounting. Keep a conservative
+// hard cap before sending so /compact-like requests do not reach the gateway oversized.
+let payloadSizeLimitKB = 1536 // UI/config default
+const UPSTREAM_SAFE_PAYLOAD_LIMIT_KB = 512
+const EMERGENCY_PAYLOAD_LIMIT_KB = 320
 const UPSTREAM_ENDPOINT_TIMEOUT_MS = 25_000
 export function setPayloadSizeLimitKB(limitKB: number): void {
   payloadSizeLimitKB = Math.max(256, Math.min(10240, limitKB))
+}
+
+function getEffectivePayloadLimitBytes(): number {
+  return Math.min(payloadSizeLimitKB || 1536, UPSTREAM_SAFE_PAYLOAD_LIMIT_KB) * 1024
+}
+
+function getEmergencyPayloadLimitBytes(currentPayloadBytes?: number): number {
+  const configuredEmergency = Math.min(
+    getEffectivePayloadLimitBytes(),
+    EMERGENCY_PAYLOAD_LIMIT_KB * 1024
+  )
+  if (!currentPayloadBytes || currentPayloadBytes <= 0) return configuredEmergency
+  return Math.min(configuredEmergency, Math.max(128 * 1024, Math.floor(currentPayloadBytes * 0.5)))
 }
 
 function isKProxyUrl(proxyUrl: string): boolean {
@@ -402,6 +420,80 @@ function compactLargeContextFields(
   return { count, size }
 }
 
+const COMPACT_SUMMARY_MAX_LINES = 24
+const COMPACT_SUMMARY_LINE_MAX_CHARS = 360
+
+function compactText(text: string, maxChars: number): string {
+  return text.trim().replace(/\s+/g, ' ').slice(0, maxChars)
+}
+
+function summarizeKiroMessage(message: KiroHistoryMessage, index: number): string | null {
+  if (message.userInputMessage) {
+    const user = message.userInputMessage
+    const parts: string[] = []
+    const text = compactText(user.content || '', COMPACT_SUMMARY_LINE_MAX_CHARS)
+    if (text) parts.push(`content="${text}"`)
+    const toolResults = user.userInputMessageContext?.toolResults ?? []
+    if (toolResults.length > 0) {
+      const toolSummary = toolResults
+        .slice(0, 3)
+        .map((result) => {
+          const resultText = compactText(
+            result.content?.map((content) => content.text).join('\n') || '',
+            180
+          )
+          return `${result.toolUseId || 'tool'}:${result.status || 'ok'}${resultText ? ` ${resultText}` : ''}`
+        })
+        .join('; ')
+      parts.push(`toolResults=${toolSummary}`)
+      if (toolResults.length > 3) parts.push(`+${toolResults.length - 3} more toolResults`)
+    }
+    const imageCount = user.images?.length ?? 0
+    const documentCount = user.documents?.length ?? 0
+    if (imageCount || documentCount)
+      parts.push(`attachments=${imageCount} image(s), ${documentCount} document(s)`)
+    return parts.length > 0 ? `${index}. user: ${parts.join(' | ')}` : null
+  }
+
+  if (message.assistantResponseMessage) {
+    const assistant = message.assistantResponseMessage
+    const parts: string[] = []
+    const text = compactText(assistant.content || '', COMPACT_SUMMARY_LINE_MAX_CHARS)
+    if (text) parts.push(`content="${text}"`)
+    const toolUses = assistant.toolUses ?? []
+    if (toolUses.length > 0) {
+      const toolSummary = toolUses
+        .slice(0, 4)
+        .map((toolUse) => `${toolUse.name || 'tool'}#${toolUse.toolUseId || '?'}`)
+        .join(', ')
+      parts.push(`toolUses=${toolSummary}`)
+      if (toolUses.length > 4) parts.push(`+${toolUses.length - 4} more toolUses`)
+    }
+    return parts.length > 0 ? `${index}. assistant: ${parts.join(' | ')}` : null
+  }
+
+  return null
+}
+
+function buildCompactionSummary(removedMessages: KiroHistoryMessage[], maxLines: number): string {
+  const lines = removedMessages
+    .map((message, index) => summarizeKiroMessage(message, index + 1))
+    .filter((line): line is string => Boolean(line))
+    .slice(0, maxLines)
+
+  return [
+    `[Proxy server-side context compression: ${removedMessages.length} older message(s) were replaced with this extractive memory because the serialized request exceeded Kiro's payload limit.]`,
+    'Important: treat this block as lossy prior conversation memory. Prefer the uncompressed recent messages below when details conflict.',
+    lines.length > 0 ? 'Retained memory:' : '',
+    ...lines,
+    removedMessages.length > lines.length
+      ? `... ${removedMessages.length - lines.length} additional older message(s) omitted from summary.`
+      : ''
+  ]
+    .filter(Boolean)
+    .join('\n')
+}
+
 function compactHistoryMessages(
   payload: KiroPayload,
   limitBytes: number
@@ -421,40 +513,68 @@ function compactHistoryMessages(
     history = history.slice(2)
   }
 
-  const removedSnippets: string[] = []
-  while (history.length > 2 && size > limitBytes) {
+  const removedMessages: KiroHistoryMessage[] = []
+  const MIN_RECENT_HISTORY_MESSAGES = 2
+  while (history.length > MIN_RECENT_HISTORY_MESSAGES && size > limitBytes) {
     const removedMessage = history.shift()
+    if (removedMessage) removedMessages.push(removedMessage)
     removed++
-    const text =
-      removedMessage?.userInputMessage?.content ||
-      removedMessage?.assistantResponseMessage?.content ||
-      ''
-    if (text.trim() && removedSnippets.length < 6) {
-      removedSnippets.push(text.trim().replace(/\s+/g, ' ').slice(0, 180))
-    }
     payload.conversationState.history = [...preservedPrefix, ...history]
     size = getPayloadSize(payload)
   }
 
   if (removed > 0) {
-    const summaryText = [
-      `[Proxy auto-compact summary: ${removed} older message(s) were omitted because the serialized request exceeded Kiro's payload limit.]`,
-      removedSnippets.length > 0 ? `Retained snippets: ${removedSnippets.join(' | ')}` : ''
-    ]
-      .filter(Boolean)
-      .join('\n')
-    const compactPair: KiroHistoryMessage[] = [
-      { userInputMessage: { content: summaryText, origin: 'AI_EDITOR' } },
-      { assistantResponseMessage: { content: 'I understand the compacted prior context.' } }
+    let compactPair: KiroHistoryMessage[] = [
+      {
+        userInputMessage: {
+          content: buildCompactionSummary(removedMessages, COMPACT_SUMMARY_MAX_LINES),
+          origin: 'AI_EDITOR'
+        }
+      },
+      { assistantResponseMessage: { content: 'I understand the compressed prior context.' } }
     ]
     payload.conversationState.history = [...preservedPrefix, ...compactPair, ...history]
     size = getPayloadSize(payload)
+
+    // If the structured summary itself is too large, progressively shrink it before
+    // dropping more recent context. This avoids /compact failing because the compact
+    // request is still over the gateway threshold.
+    let maxSummaryLines = COMPACT_SUMMARY_MAX_LINES
+    while (size > limitBytes && maxSummaryLines > 3) {
+      maxSummaryLines = Math.max(3, Math.floor(maxSummaryLines / 2))
+      compactPair[0].userInputMessage!.content = buildCompactionSummary(
+        removedMessages,
+        maxSummaryLines
+      )
+      payload.conversationState.history = [...preservedPrefix, ...compactPair, ...history]
+      size = getPayloadSize(payload)
+    }
+
     while (
-      payload.conversationState.history.length > preservedPrefix.length + 2 &&
+      payload.conversationState.history.length > preservedPrefix.length + compactPair.length &&
       size > limitBytes
     ) {
-      payload.conversationState.history.splice(preservedPrefix.length + 2, 1)
+      payload.conversationState.history.splice(preservedPrefix.length + compactPair.length, 1)
       removed++
+      size = getPayloadSize(payload)
+    }
+
+    if (size > limitBytes) {
+      compactPair = [
+        {
+          userInputMessage: {
+            content: `[Proxy server-side context compression: ${removed} older message(s) omitted to satisfy Kiro payload limits.]`,
+            origin: 'AI_EDITOR'
+          }
+        },
+        { assistantResponseMessage: { content: 'I understand the compressed prior context.' } }
+      ]
+      payload.conversationState.history = [...preservedPrefix, ...compactPair]
+      size = getPayloadSize(payload)
+    }
+
+    if (size > limitBytes && preservedPrefix.length > 0) {
+      payload.conversationState.history = compactPair
       size = getPayloadSize(payload)
     }
   }
@@ -508,12 +628,22 @@ function isRequestBodyInvalidError(body: string): boolean {
   return body.includes('REQUEST_BODY_INVALID') || body.includes('Improperly formed request')
 }
 
+function isContentLengthExceededError(body: string): boolean {
+  return (
+    body.includes('CONTENT_LENGTH_EXCEEDS_THRESHOLD') ||
+    body.includes('Input content length exceeds threshold')
+  )
+}
+
 function enforcePayloadSizeLimit(payload: KiroPayload, limitBytes: number): number {
-  let size = getPayloadSize(payload)
+  const originalSize = getPayloadSize(payload)
+  let size = originalSize
   let truncatedToolResults = 0
   let strippedAttachments = 0
   let compactedContextFields = 0
   let compactedHistoryMessages = 0
+  let emergencyHistoryDrop = false
+  let emergencyToolCompaction = false
 
   if (size > limitBytes) {
     const result = truncateToolResults(payload, limitBytes)
@@ -563,6 +693,57 @@ function enforcePayloadSizeLimit(payload: KiroPayload, limitBytes: number): numb
     }
   }
 
+  // Emergency last resort: if Kiro still rejects due to content length, keep the
+  // current turn and tool definitions, but drop all prior history. This is better
+  // than forwarding an oversized request that the upstream gateway cannot compact.
+  if (size > limitBytes && payload.conversationState.history?.length) {
+    compactedHistoryMessages += payload.conversationState.history.length
+    emergencyHistoryDrop = true
+    payload.conversationState.history = [
+      {
+        userInputMessage: {
+          content:
+            '[Proxy emergency compression: all prior history was omitted because the serialized request still exceeded Kiro payload limits after normal compaction.]',
+          origin: 'AI_EDITOR'
+        }
+      },
+      { assistantResponseMessage: { content: 'I understand the emergency-compressed context.' } }
+    ]
+    size = getPayloadSize(payload)
+  }
+
+  if (size > limitBytes) {
+    const current = payload.conversationState.currentMessage.userInputMessage
+    const tools = current.userInputMessageContext?.tools
+    if (tools?.length) {
+      const originalToolCount = tools.length
+      current.userInputMessageContext = {
+        ...current.userInputMessageContext,
+        tools: tools.slice(0, 128)
+      }
+      emergencyToolCompaction = true
+      appendProxyNote(
+        current,
+        `[Proxy emergency compression: kept ${Math.min(originalToolCount, 128)}/${originalToolCount} tool definition(s) because tool schemas exceeded the payload limit.]`
+      )
+      size = getPayloadSize(payload)
+    }
+  }
+
+  if (size > limitBytes) {
+    const current = payload.conversationState.currentMessage.userInputMessage
+    const context = current.userInputMessageContext
+    if (context?.tools?.length) {
+      delete context.tools
+      emergencyToolCompaction = true
+      appendProxyNote(
+        current,
+        '[Proxy emergency compression: removed tool definitions because the request still exceeded the payload limit.]'
+      )
+      size = getPayloadSize(payload)
+    }
+  }
+
   if (
     truncatedToolResults > 0 ||
     strippedAttachments > 0 ||
@@ -582,6 +763,9 @@ function enforcePayloadSizeLimit(payload: KiroPayload, limitBytes: number): numb
       strippedAttachments,
       compactedContextFields,
       compactedHistoryMessages,
+      emergencyHistoryDrop,
+      emergencyToolCompaction,
+      originalSize,
       finalSize: size,
       limitBytes
     })
@@ -1411,7 +1595,7 @@ export function buildKiroPayload(
 
   // Payload guard: Kiro's upstream rejects large serialized requests with
   // CONTENT_LENGTH_EXCEEDS_THRESHOLD. Apply compact-style trimming by default.
-  const PAYLOAD_SIZE_LIMIT = (payloadSizeLimitKB || 1536) * 1024
+  const PAYLOAD_SIZE_LIMIT = getEffectivePayloadLimitBytes()
   const initialPayloadSize = enforcePayloadSizeLimit(payload, PAYLOAD_SIZE_LIMIT)
 
   // 调试日志
@@ -1599,6 +1783,7 @@ export async function callKiroApiStream(
           .agentTaskType
       }
 
+      enforcePayloadSizeLimit(requestPayload, getEffectivePayloadLimitBytes())
       let payloadStr = stringifyJsonAsciiSafe(requestPayload)
       const headers = getAuthHeaders(account)
       const currentUserInput = requestPayload.conversationState.currentMessage.userInputMessage
@@ -1653,8 +1838,24 @@ export async function callKiroApiStream(
         response = await sendPayload()
         if (response.status === 400) {
           const body = await response.text()
-          if (isRequestBodyInvalidError(body)) {
+          if (isContentLengthExceededError(body)) {
+            const emergencyLimit = getEmergencyPayloadLimitBytes(payloadStr.length)
+            const finalSize = enforcePayloadSizeLimit(requestPayload, emergencyLimit)
+            payloadStr = stringifyJsonAsciiSafe(requestPayload)
+            console.warn(
+              '[KiroAPI] CONTENT_LENGTH_EXCEEDS_THRESHOLD: retrying once with emergency compressed payload',
+              {
+                endpoint: endpoint.name,
+                payloadSize: payloadStr.length,
+                measuredSize: finalSize,
+                emergencyLimit,
+                historyMessages: requestPayload.conversationState.history?.length ?? 0
+              }
+            )
+            response = await sendPayload()
+          } else if (isRequestBodyInvalidError(body)) {
             recoverRequestBodyInvalidPayload(requestPayload)
+            enforcePayloadSizeLimit(requestPayload, getEffectivePayloadLimitBytes())
             payloadStr = stringifyJsonAsciiSafe(requestPayload)
             console.warn(
               '[KiroAPI] REQUEST_BODY_INVALID: retrying once with compatibility payload',
