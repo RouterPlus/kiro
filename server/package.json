@@ -1,0 +1,15 @@
+{
+  "name": "kiro-web-server",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Web server for Kiro Account Manager",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "socket.io": "^4.6.1",
+    "cors": "^2.8.5"
+  }
+}
