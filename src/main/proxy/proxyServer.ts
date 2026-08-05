@@ -2523,7 +2523,7 @@ export class ProxyServer {
 
     try {
       const toolNameRegistry = new ToolNameRegistry()
-      const kiroPayload = openaiToKiro(openaiRequest, account.profileArn, toolNameRegistry)
+      const kiroPayload = openaiToKiro(openaiRequest, account.profileArn, toolNameRegistry, this.config.systemPromptOverwrite)
 
       if (isStream) {
         // SSE 流式
@@ -2902,7 +2902,7 @@ export class ProxyServer {
       const toolNameRegistry = new ToolNameRegistry()
 
       // 转换为 Kiro 格式
-      const kiroPayload = openaiToKiro(processedRequest, account.profileArn, toolNameRegistry)
+      const kiroPayload = openaiToKiro(processedRequest, account.profileArn, toolNameRegistry, this.config.systemPromptOverwrite)
 
       // 记录请求详情到日志
       if (this.config.logRequests) {
@@ -2943,7 +2943,7 @@ export class ProxyServer {
         const { result, account: usedAccount } = await this.callWithRetry(
           account,
           async (acc) => {
-            const retryPayload = openaiToKiro(processedRequest, acc.profileArn, toolNameRegistry)
+            const retryPayload = openaiToKiro(processedRequest, acc.profileArn, toolNameRegistry, this.config.systemPromptOverwrite)
             return callKiroApi(acc, retryPayload, signal)
           },
           '/v1/chat/completions',
@@ -3108,7 +3108,7 @@ export class ProxyServer {
         const { result, account: usedAccount } = await this.callWithRetry(
           account,
           async (acc) => {
-            const retryPayload = openaiToKiro(processedRequest, acc.profileArn, toolNameRegistry)
+            const retryPayload = openaiToKiro(processedRequest, acc.profileArn, toolNameRegistry, this.config.systemPromptOverwrite)
             return callKiroApi(acc, retryPayload, signal)
           },
           '/v1/responses',
@@ -3218,7 +3218,7 @@ export class ProxyServer {
       const { result, account: usedAccount } = await this.callWithRetry(
         account,
         async (acc) => {
-          const retryPayload = openaiToKiro(processedRequest, acc.profileArn, toolNameRegistry)
+          const retryPayload = openaiToKiro(processedRequest, acc.profileArn, toolNameRegistry, this.config.systemPromptOverwrite)
           return callKiroApi(acc, retryPayload, signal)
         },
         '/v1/responses',
@@ -3732,7 +3732,7 @@ export class ProxyServer {
       const toolNameRegistry = new ToolNameRegistry()
 
       this.syncKProxyDeviceId(account)
-      const kiroPayload = claudeToKiro(processedRequest, account.profileArn, toolNameRegistry)
+      const kiroPayload = claudeToKiro(processedRequest, account.profileArn, toolNameRegistry, this.config.systemPromptOverwrite)
 
       // 构建 prompt cache profile（用于模拟缓存 usage）
       const estimatedInputTokens = Math.max(1, Math.round(JSON.stringify(kiroPayload).length * 0.3))
@@ -3793,7 +3793,7 @@ export class ProxyServer {
         const { result, account: usedAccount } = await this.callWithRetry(
           account,
           async (acc) => {
-            const retryPayload = claudeToKiro(processedRequest, acc.profileArn, toolNameRegistry)
+            const retryPayload = claudeToKiro(processedRequest, acc.profileArn, toolNameRegistry, this.config.systemPromptOverwrite)
             return callKiroApi(acc, retryPayload, signal)
           },
           '/v1/messages',

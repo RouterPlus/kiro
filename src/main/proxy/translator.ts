@@ -257,7 +257,8 @@ export function openAIChatToResponsesResponse(
 export function openaiToKiro(
   request: OpenAIChatRequest,
   profileArn?: string,
-  toolNameRegistry: ToolNameRegistry = new ToolNameRegistry()
+  toolNameRegistry: ToolNameRegistry = new ToolNameRegistry(),
+  systemPromptOverwrite?: string
 ): KiroPayload {
   const modelId = mapModelId(request.model)
   const origin = 'AI_EDITOR'
@@ -287,7 +288,13 @@ export function openaiToKiro(
 
   // 注入时间戳
   const timestamp = new Date().toISOString()
-  systemPrompt = `[Context: Current time is ${timestamp}]\n\n${systemPrompt}`
+
+  // 如果配置了自定义系统提示，使用它作为主要系统提示
+  if (systemPromptOverwrite?.trim()) {
+    systemPrompt = `[Context: Current time is ${timestamp}]\n\n${systemPromptOverwrite}\n\n${systemPrompt}`
+  } else {
+    systemPrompt = `[Context: Current time is ${timestamp}]\n\n${systemPrompt}`
+  }
 
   // 注入执行导向指令（防止 AI 在探索过程中丢失目标）
   const executionDirective = `
@@ -758,7 +765,8 @@ export function createOpenaiStreamChunk(
 export function claudeToKiro(
   request: ClaudeRequest,
   profileArn?: string,
-  toolNameRegistry: ToolNameRegistry = new ToolNameRegistry()
+  toolNameRegistry: ToolNameRegistry = new ToolNameRegistry(),
+  systemPromptOverwrite?: string
 ): KiroPayload {
   const modelId = mapModelId(request.model)
   const origin = 'AI_EDITOR'
@@ -779,7 +787,13 @@ export function claudeToKiro(
 
   // 注入时间戳
   const timestamp = new Date().toISOString()
-  systemPrompt = `[Context: Current time is ${timestamp}]\n\n${systemPrompt}`
+
+  // 如果配置了自定义系统提示，使用它作为主要系统提示
+  if (systemPromptOverwrite?.trim()) {
+    systemPrompt = `[Context: Current time is ${timestamp}]\n\n${systemPromptOverwrite}\n\n${systemPrompt}`
+  } else {
+    systemPrompt = `[Context: Current time is ${timestamp}]\n\n${systemPrompt}`
+  }
 
   // 注入执行导向指令（防止 AI 在探索过程中丢失目标）
   const executionDirective = `

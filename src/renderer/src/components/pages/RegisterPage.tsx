@@ -462,6 +462,11 @@ export function RegisterPage(): React.JSX.Element {
       config.ddgGmailAppPassword = ddgGmailAppPassword
     }
 
+    // Add proxy URL if provided for all modes
+    if (proxyUrl.trim()) {
+      config.proxyUrl = proxyUrl.trim()
+    }
+
     const res = await window.api.registrationStartAuto(
       config as Parameters<typeof window.api.registrationStartAuto>[0]
     )
@@ -915,6 +920,10 @@ export function RegisterPage(): React.JSX.Element {
       config.useOutlook = true
       config.outlookData = outlookData
     }
+    // Add proxy URL if provided for all modes
+    if (proxyUrl.trim()) {
+      config.proxyUrl = proxyUrl.trim()
+    }
     return config as Parameters<typeof window.api.registrationStartAuto>[0]
   }, [
     mode,
@@ -926,7 +935,8 @@ export function RegisterPage(): React.JSX.Element {
     tempMailDomain,
     ddgAuthToken,
     ddgGmailEmail,
-    ddgGmailAppPassword
+    ddgGmailAppPassword,
+    proxyUrl
   ])
 
   // 构建浏览器模式配置
@@ -1461,23 +1471,77 @@ export function RegisterPage(): React.JSX.Element {
                   disabled={isRunning || batchRunning}
                 />
               </div>
+              <div className="space-y-1.5 md:col-span-2">
+                <Label>{isEn ? 'Proxy URL (Optional)' : '代理 URL（可选）'}</Label>
+                <Input
+                  value={proxyUrl}
+                  onChange={(e) => setProxyUrl(e.target.value)}
+                  placeholder={
+                    isEn
+                      ? 'http://user:pass@host:port or socks5://host:port'
+                      : 'http://user:pass@host:port 或 socks5://host:port'
+                  }
+                  disabled={isRunning || batchRunning}
+                />
+              </div>
             </div>
           )}
 
           {/* Outlook 配置 */}
           {mode === 'outlook' && (
-            <div className="p-4 bg-muted/30 rounded-lg border border-dashed space-y-1.5">
-              <Label>
-                {t('register.outlookAccounts')} ({t('register.outlookFormat')})
-              </Label>
-              <textarea
-                value={outlookData}
-                onChange={(e) => setOutlookData(e.target.value)}
-                placeholder={t('register.outlookPlaceholder')}
-                rows={3}
-                disabled={isRunning || batchRunning}
-                className="w-full px-3 py-2 bg-background border rounded-lg text-sm font-mono disabled:opacity-50 resize-none"
-              />
+            <div className="p-4 bg-muted/30 rounded-lg border border-dashed space-y-3">
+              <div className="space-y-1.5">
+                <Label>
+                  {isEn ? 'Outlook Accounts (JSON format)' : 'Outlook 账号（JSON 格式）'}
+                </Label>
+                <textarea
+                  value={outlookData}
+                  onChange={(e) => setOutlookData(e.target.value)}
+                  placeholder={
+                    isEn
+                      ? '[{"email": "user@outlook.com", "password": "pass", "refresh_token": "...", "access_token": "...", "graph_refresh_token": "...", "graph_access_token": "...", "client_id": "..."}]'
+                      : '[{"email": "user@outlook.com", "password": "pass", "refresh_token": "...", "access_token": "...", "graph_refresh_token": "...", "graph_access_token": "...", "client_id": "..."}]'
+                  }
+                  rows={6}
+                  disabled={isRunning || batchRunning}
+                  className="w-full px-3 py-2 bg-background border rounded-lg text-sm font-mono disabled:opacity-50 resize-y"
+                />
+                <input
+                  type="file"
+                  accept=".json,.txt"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0]
+                    if (file) {
+                      const reader = new FileReader()
+                      reader.onload = (event) => {
+                        const content = event.target?.result as string
+                        setOutlookData(content)
+                      }
+                      reader.readAsText(file)
+                    }
+                  }}
+                  disabled={isRunning || batchRunning}
+                  className="text-sm"
+                />
+                <p className="text-xs text-muted-foreground">
+                  {isEn
+                    ? 'Upload JSON file with array of Outlook accounts including refresh_token, access_token, graph_refresh_token, graph_access_token, and client_id'
+                    : '上传包含 Outlook 账号数组的 JSON 文件，需包含 refresh_token, access_token, graph_refresh_token, graph_access_token 和 client_id'}
+                </p>
+              </div>
+              <div className="space-y-1.5">
+                <Label>{isEn ? 'Proxy URL (Optional)' : '代理 URL（可选）'}</Label>
+                <Input
+                  value={proxyUrl}
+                  onChange={(e) => setProxyUrl(e.target.value)}
+                  placeholder={
+                    isEn
+                      ? 'http://user:pass@host:port or socks5://host:port'
+                      : 'http://user:pass@host:port 或 socks5://host:port'
+                  }
+                  disabled={isRunning || batchRunning}
+                />
+              </div>
             </div>
           )}
 
@@ -1513,6 +1577,21 @@ export function RegisterPage(): React.JSX.Element {
                   />
                 </div>
               </div>
+              {mode === 'tempmail' && (
+                <div className="space-y-1.5">
+                  <Label>{isEn ? 'Proxy URL (Optional)' : '代理 URL（可选）'}</Label>
+                  <Input
+                    value={proxyUrl}
+                    onChange={(e) => setProxyUrl(e.target.value)}
+                    placeholder={
+                      isEn
+                        ? 'http://user:pass@host:port or socks5://host:port'
+                        : 'http://user:pass@host:port 或 socks5://host:port'
+                    }
+                    disabled={isRunning || batchRunning}
+                  />
+                </div>
+              )}
               <p className="text-xs text-muted-foreground">{t('register.tempMailDesc')}</p>
             </div>
           )}
@@ -1555,6 +1634,21 @@ export function RegisterPage(): React.JSX.Element {
                   disabled={isRunning || batchRunning}
                 />
               </div>
+              {mode === 'ddg' && (
+                <div className="space-y-1.5">
+                  <Label>{isEn ? 'Proxy URL (Optional)' : '代理 URL（可选）'}</Label>
+                  <Input
+                    value={proxyUrl}
+                    onChange={(e) => setProxyUrl(e.target.value)}
+                    placeholder={
+                      isEn
+                        ? 'http://user:pass@host:port or socks5://host:port'
+                        : 'http://user:pass@host:port 或 socks5://host:port'
+                    }
+                    disabled={isRunning || batchRunning}
+                  />
+                </div>
+              )}
               <p className="text-xs text-muted-foreground">
                 {isEn
                   ? 'DDG generates a @duck.com alias and forwards mail to your Gmail. Gmail IMAP polls for the OTP.'

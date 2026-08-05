@@ -1,10 +1,10 @@
 import { create } from 'zustand'
 
 /**
- * Webhook 通知中心
+ * Webhook notification center
  *
- * 用于把关键事件（批量完成、风控触发、单账号注册成功/失败等）推送到外部 IM。
- * 内置常见 IM 的消息模板：钉钉 / 企微 / Telegram / Discord / 自定义 JSON。
+ * Used to push critical events (batch completed, risk triggered, single account registration success/failed, etc.) to external IM.
+ * Built-in message templates for common IMs: DingTalk / WeCom / Telegram / Discord / Custom JSON.
  */
 
 export type WebhookKind = 'dingtalk' | 'wechat-work' | 'telegram' | 'discord' | 'feishu' | 'custom'
@@ -15,32 +15,45 @@ export interface WebhookEntry {
   url: string
   label?: string
   enabled: boolean
-  /** Telegram bot 模式需要 chat_id */
+  /** Telegram bot mode requires chat_id */
   telegramChatId?: string
-  /** 自定义模式的 JSON 模板，{{title}} {{message}} {{level}} 占位符 */
+  /** Custom mode JSON template, {{title}} {{message}} {{level}} placeholders */
   customTemplate?: string
-  /** 订阅哪些事件 */
+  /** Which events to subscribe to */
   events: WebhookEvent[]
   createdAt: number
 }
 
 export type WebhookEvent =
-  | 'batch-completed'      // 批量任务完成
-  | 'batch-error'          // 批量任务严重错误
-  | 'risk-warning'         // 风控警告触发
-  | 'account-banned'       // 账号被封禁
-  | 'register-success'     // 单账号注册成功
-  | 'register-failed'      // 单账号注册失败
-  | 'token-expired'        // Token 过期/刷新失败
+  | 'batch-completed'      // Batch task completed
+  | 'batch-error'          // Batch task severe error
+  | 'risk-warning'         // Risk control warning triggered
+  | 'account-banned'       // Account banned
+  | 'register-success'     // Single account registration success
+  | 'register-failed'      // Single account registration failed
+  | 'token-expired'        // Token expired/refresh failed
 
-export const ALL_WEBHOOK_EVENTS: { value: WebhookEvent; label: string }[] = [
-  { value: 'batch-completed', label: '批量任务完成' },
-  { value: 'batch-error', label: '批量任务严重错误' },
-  { value: 'risk-warning', label: '风控警告触发' },
-  { value: 'account-banned', label: '账号被封禁' },
-  { value: 'register-success', label: '注册成功（单账号）' },
-  { value: 'register-failed', label: '注册失败（单账号）' },
-  { value: 'token-expired', label: 'Token 过期/刷新失败' }
+export function getWebhookEventLabel(event: WebhookEvent, isEn: boolean): string {
+  const labels: Record<WebhookEvent, { en: string; zh: string }> = {
+    'batch-completed': { en: 'Batch Completed', zh: '批量任务完成' },
+    'batch-error': { en: 'Batch Error', zh: '批量任务严重错误' },
+    'risk-warning': { en: 'Risk Warning', zh: '风控警告触发' },
+    'account-banned': { en: 'Account Banned', zh: '账号被封禁' },
+    'register-success': { en: 'Registration Success', zh: '注册成功（单账号）' },
+    'register-failed': { en: 'Registration Failed', zh: '注册失败（单账号）' },
+    'token-expired': { en: 'Token Expired', zh: 'Token 过期/刷新失败' }
+  }
+  return isEn ? labels[event].en : labels[event].zh
+}
+
+export const ALL_WEBHOOK_EVENTS: WebhookEvent[] = [
+  'batch-completed',
+  'batch-error',
+  'risk-warning',
+  'account-banned',
+  'register-success',
+  'register-failed',
+  'token-expired'
 ]
 
 export interface WebhookMessage {

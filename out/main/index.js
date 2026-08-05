@@ -1598,7 +1598,8 @@ class MitmProxy {
         console.error(`[MitmProxy] TLS error for ${hostname}:`, error.message);
         clientSocket.end();
       });
-      if (head.length > 0) tlsSocket.unshift(head);
+      if (head.length > 0)
+        tlsSocket.unshift(head);
       this.handleDecryptedConnection(tlsSocket, hostname, port);
     } catch (error) {
       console.error(`[MitmProxy] MITM setup error for ${hostname}:`, error);
@@ -1642,25 +1643,14 @@ class MitmProxy {
             const modifiedText = this.modifyBody(body, requestDeviceId);
             if (modifiedText !== body) {
               modifiedBody = Buffer.from(modifiedText, "utf8");
-              modifiedHeaders = modifiedHeaders.replace(
-                /content-length:\s*\d+/i,
-                `content-length: ${modifiedBody.length}`
-              );
+              modifiedHeaders = modifiedHeaders.replace(/content-length:\s*\d+/i, `content-length: ${modifiedBody.length}`);
               contentLength = modifiedBody.length;
             }
           }
           bodyReceived = modifiedBody.length;
           clientSocket.pause();
           clientSocket.removeListener("data", onClientData);
-          this.forwardRequest(
-            modifiedHeaders,
-            modifiedBody,
-            hostname,
-            port,
-            clientSocket,
-            contentLength,
-            bodyReceived
-          );
+          this.forwardRequest(modifiedHeaders, modifiedBody, hostname, port, clientSocket, contentLength, bodyReceived);
         }
       }
     };
@@ -1673,15 +1663,16 @@ class MitmProxy {
    * 替换请求体中的 Machine ID
    */
   modifyBody(body, targetDeviceId) {
-    if (!targetDeviceId || !body) return body;
-    if (!MACHINE_ID_REGEX.test(body)) return body;
+    if (!targetDeviceId || !body)
+      return body;
+    if (!MACHINE_ID_REGEX.test(body))
+      return body;
     MACHINE_ID_REGEX.lastIndex = 0;
     const result = body.replace(MACHINE_ID_REGEX, (match) => {
-      if (match.toLowerCase() === targetDeviceId.toLowerCase()) return match;
+      if (match.toLowerCase() === targetDeviceId.toLowerCase())
+        return match;
       if (this.config.logRequests) {
-        console.log(
-          `[MitmProxy] Replaced Machine ID in body: ${match.substring(0, 16)}... -> ${targetDeviceId.substring(0, 16)}...`
-        );
+        console.log(`[MitmProxy] Replaced Machine ID in body: ${match.substring(0, 16)}... -> ${targetDeviceId.substring(0, 16)}...`);
       }
       return targetDeviceId;
     });
@@ -1752,33 +1743,30 @@ class MitmProxy {
    */
   forwardRequest(headers, initialBody, hostname, port, clientSocket, contentLength, bodyReceived) {
     const startTime = Date.now();
-    const serverSocket = tls__namespace.connect(
-      {
-        host: hostname,
-        port,
-        servername: hostname,
-        rejectUnauthorized: true
-      },
-      () => {
-        serverSocket.write(headers + "\r\n\r\n");
-        if (initialBody.length > 0) {
-          serverSocket.write(initialBody);
-        }
-        if (bodyReceived < contentLength) {
-          const onBodyData = (chunk) => {
-            serverSocket.write(chunk);
-            bodyReceived += chunk.length;
-            if (bodyReceived >= contentLength) {
-              clientSocket.removeListener("data", onBodyData);
-            }
-          };
-          clientSocket.on("data", onBodyData);
-          clientSocket.resume();
-        } else {
-          clientSocket.resume();
-        }
+    const serverSocket = tls__namespace.connect({
+      host: hostname,
+      port,
+      servername: hostname,
+      rejectUnauthorized: true
+    }, () => {
+      serverSocket.write(headers + "\r\n\r\n");
+      if (initialBody.length > 0) {
+        serverSocket.write(initialBody);
       }
-    );
+      if (bodyReceived < contentLength) {
+        const onBodyData = (chunk) => {
+          serverSocket.write(chunk);
+          bodyReceived += chunk.length;
+          if (bodyReceived >= contentLength) {
+            clientSocket.removeListener("data", onBodyData);
+          }
+        };
+        clientSocket.on("data", onBodyData);
+        clientSocket.resume();
+      } else {
+        clientSocket.resume();
+      }
+    });
     serverSocket.on("data", (chunk) => {
       clientSocket.write(chunk);
     });
@@ -2044,7 +2032,8 @@ function isHttpLikeProxyUrl(url2) {
 }
 function parseWindowsProxyServer(raw) {
   const trimmed = raw.trim();
-  if (!trimmed) return null;
+  if (!trimmed)
+    return null;
   if (trimmed.includes("=")) {
     const map = /* @__PURE__ */ new Map();
     for (const seg of trimmed.split(";")) {
@@ -2052,13 +2041,16 @@ function parseWindowsProxyServer(raw) {
       if (eq > 0) {
         const k = seg.slice(0, eq).trim().toLowerCase();
         const v = seg.slice(eq + 1).trim();
-        if (k && v) map.set(k, v);
+        if (k && v)
+          map.set(k, v);
       }
     }
     const https2 = map.get("https");
-    if (https2) return `http://${https2}`;
+    if (https2)
+      return `http://${https2}`;
     const http2 = map.get("http");
-    if (http2) return `http://${http2}`;
+    if (http2)
+      return `http://${http2}`;
     return null;
   }
   if (/^[a-z][a-z0-9+.-]*:\/\//i.test(trimmed)) {
@@ -2074,15 +2066,9 @@ function getSystemProxy() {
   try {
     if (process.platform === "win32") {
       const { execSync } = require("child_process");
-      const result = execSync(
-        'reg query "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings" /v ProxyEnable',
-        { encoding: "utf8", timeout: 3e3, windowsHide: true }
-      );
+      const result = execSync('reg query "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings" /v ProxyEnable', { encoding: "utf8", timeout: 3e3, windowsHide: true });
       if (result.includes("0x1")) {
-        const serverResult = execSync(
-          'reg query "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings" /v ProxyServer',
-          { encoding: "utf8", timeout: 3e3, windowsHide: true }
-        );
+        const serverResult = execSync('reg query "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings" /v ProxyServer', { encoding: "utf8", timeout: 3e3, windowsHide: true });
         const match = serverResult.match(/ProxyServer\s+REG_SZ\s+(.+)/);
         if (match) {
           const parsed = parseWindowsProxyServer(match[1]);
@@ -2124,7 +2110,8 @@ function getSystemProxy() {
   return null;
 }
 function safeCreateProxyAgent(proxyUrl) {
-  if (!proxyUrl) return void 0;
+  if (!proxyUrl)
+    return void 0;
   let u;
   try {
     u = new URL(proxyUrl);
@@ -4447,7 +4434,7 @@ function openAIChatToResponsesResponse(response, previousResponseId) {
   }
   return responsesResponse;
 }
-function openaiToKiro(request, profileArn, toolNameRegistry = new ToolNameRegistry()) {
+function openaiToKiro(request, profileArn, toolNameRegistry = new ToolNameRegistry(), systemPromptOverwrite) {
   const modelId = mapModelId(request.model);
   const origin = "AI_EDITOR";
   let systemPrompt = "";
@@ -4471,9 +4458,17 @@ function openaiToKiro(request, profileArn, toolNameRegistry = new ToolNameRegist
     }
   }
   const timestamp = (/* @__PURE__ */ new Date()).toISOString();
-  systemPrompt = `[Context: Current time is ${timestamp}]
+  if (systemPromptOverwrite?.trim()) {
+    systemPrompt = `[Context: Current time is ${timestamp}]
+
+${systemPromptOverwrite}
 
 ${systemPrompt}`;
+  } else {
+    systemPrompt = `[Context: Current time is ${timestamp}]
+
+${systemPrompt}`;
+  }
   const executionDirective = `
 <execution_discipline>
 当用户要求执行特定任务时，你必须遵循以下纪律：
@@ -4822,7 +4817,7 @@ function createOpenaiStreamChunk(id, model, delta, finishReason = null, usage) {
   }
   return chunk;
 }
-function claudeToKiro(request, profileArn, toolNameRegistry = new ToolNameRegistry()) {
+function claudeToKiro(request, profileArn, toolNameRegistry = new ToolNameRegistry(), systemPromptOverwrite) {
   const modelId = mapModelId(request.model);
   const origin = "AI_EDITOR";
   let systemPrompt = "";
@@ -4836,9 +4831,17 @@ function claudeToKiro(request, profileArn, toolNameRegistry = new ToolNameRegist
     }).join("\n");
   }
   const timestamp = (/* @__PURE__ */ new Date()).toISOString();
-  systemPrompt = `[Context: Current time is ${timestamp}]
+  if (systemPromptOverwrite?.trim()) {
+    systemPrompt = `[Context: Current time is ${timestamp}]
+
+${systemPromptOverwrite}
 
 ${systemPrompt}`;
+  } else {
+    systemPrompt = `[Context: Current time is ${timestamp}]
+
+${systemPrompt}`;
+  }
   const executionDirective = `
 <execution_discipline>
 当用户要求执行特定任务时，你必须遵循以下纪律：
@@ -7724,7 +7727,7 @@ class ProxyServer {
     }
     try {
       const toolNameRegistry = new ToolNameRegistry();
-      const kiroPayload = openaiToKiro(openaiRequest, account.profileArn, toolNameRegistry);
+      const kiroPayload = openaiToKiro(openaiRequest, account.profileArn, toolNameRegistry, this.config.systemPromptOverwrite);
       if (isStream) {
         res.writeHead(200, {
           "Content-Type": "text/event-stream",
@@ -8061,7 +8064,7 @@ class ProxyServer {
     this.events.onRequest?.({ path: "/v1/chat/completions", method: "POST", accountId: account.id });
     try {
       const toolNameRegistry = new ToolNameRegistry();
-      const kiroPayload = openaiToKiro(processedRequest, account.profileArn, toolNameRegistry);
+      const kiroPayload = openaiToKiro(processedRequest, account.profileArn, toolNameRegistry, this.config.systemPromptOverwrite);
       if (this.config.logRequests) {
         const userInput = kiroPayload.conversationState.currentMessage?.userInputMessage;
         const contentLength = typeof userInput?.content === "string" ? userInput.content.length : 0;
@@ -8096,7 +8099,7 @@ class ProxyServer {
         const { result, account: usedAccount } = await this.callWithRetry(
           account,
           async (acc) => {
-            const retryPayload = openaiToKiro(processedRequest, acc.profileArn, toolNameRegistry);
+            const retryPayload = openaiToKiro(processedRequest, acc.profileArn, toolNameRegistry, this.config.systemPromptOverwrite);
             return callKiroApi(acc, retryPayload, signal);
           },
           "/v1/chat/completions",
@@ -8246,7 +8249,7 @@ data: ${JSON.stringify({ type: "response.created", response: { id: responseId, o
         const { result: result2, account: usedAccount2 } = await this.callWithRetry(
           account,
           async (acc) => {
-            const retryPayload = openaiToKiro(processedRequest, acc.profileArn, toolNameRegistry);
+            const retryPayload = openaiToKiro(processedRequest, acc.profileArn, toolNameRegistry, this.config.systemPromptOverwrite);
             return callKiroApi(acc, retryPayload, signal);
           },
           "/v1/responses",
@@ -8382,7 +8385,7 @@ data: ${JSON.stringify({ type: "response.completed", response: streamedResponse 
       const { result, account: usedAccount } = await this.callWithRetry(
         account,
         async (acc) => {
-          const retryPayload = openaiToKiro(processedRequest, acc.profileArn, toolNameRegistry);
+          const retryPayload = openaiToKiro(processedRequest, acc.profileArn, toolNameRegistry, this.config.systemPromptOverwrite);
           return callKiroApi(acc, retryPayload, signal);
         },
         "/v1/responses",
@@ -8818,7 +8821,7 @@ data: ${JSON.stringify({ type: "response.completed", response: streamedResponse 
     try {
       const toolNameRegistry = new ToolNameRegistry();
       this.syncKProxyDeviceId(account);
-      const kiroPayload = claudeToKiro(processedRequest, account.profileArn, toolNameRegistry);
+      const kiroPayload = claudeToKiro(processedRequest, account.profileArn, toolNameRegistry, this.config.systemPromptOverwrite);
       const estimatedInputTokens = Math.max(1, Math.round(JSON.stringify(kiroPayload).length * 0.3));
       const cacheProfile = promptCacheTracker.buildClaudeProfile(
         processedRequest.system,
@@ -8870,7 +8873,7 @@ data: ${JSON.stringify({ type: "response.completed", response: streamedResponse 
         const { result, account: usedAccount } = await this.callWithRetry(
           account,
           async (acc) => {
-            const retryPayload = claudeToKiro(processedRequest, acc.profileArn, toolNameRegistry);
+            const retryPayload = claudeToKiro(processedRequest, acc.profileArn, toolNameRegistry, this.config.systemPromptOverwrite);
             return callKiroApi(acc, retryPayload, signal);
           },
           "/v1/messages",
@@ -10108,7 +10111,8 @@ function generateCanvasData() {
     [32, 30 + randInt$1(71)],
     [224, 60 + randInt$1(121)]
   ];
-  for (const [idx, val] of colorPeaks) bins[idx] = val;
+  for (const [idx, val] of colorPeaks)
+    bins[idx] = val;
   let remaining = totalSamples - bins.reduce((a, b) => a + b, 0);
   for (let i = 1; i < 255; i++) {
     if (bins[i] === 0 && remaining > 0) {
@@ -10119,7 +10123,8 @@ function generateCanvasData() {
   }
   bins[0] += remaining;
   const raw = Buffer.alloc(256 * 4);
-  for (let i = 0; i < 256; i++) raw.writeUInt32LE(bins[i], i * 4);
+  for (let i = 0; i < 256; i++)
+    raw.writeUInt32LE(bins[i], i * 4);
   const digest = crypto$1.createHash("sha256").update(raw).digest();
   const hash = digest.readInt32LE(0);
   return { hash, histogram: bins };
@@ -10178,9 +10183,7 @@ function extractFromAppJS(js) {
   let key = null;
   let identifier = "";
   let version = "";
-  const keyMatch = js.match(
-    /var\s+\w+\s*=\s*\[(\d+),\s*"([A-Za-z0-9]+)",\s*(\d+),\s*(\d+),\s*(\d+)\]/
-  );
+  const keyMatch = js.match(/var\s+\w+\s*=\s*\[(\d+),\s*"([A-Za-z0-9]+)",\s*(\d+),\s*(\d+),\s*(\d+)\]/);
   if (keyMatch) {
     const nums = [keyMatch[1], keyMatch[3], keyMatch[4], keyMatch[5]].map(Number);
     key = [nums[2], nums[0], nums[3], nums[1]];
@@ -10193,10 +10196,13 @@ function extractFromAppJS(js) {
   return { key, identifier, version };
 }
 async function refreshAppJSConfig(fetchFn) {
-  if (cachedKey) return;
-  if (refreshPromise) return refreshPromise;
+  if (cachedKey)
+    return;
+  if (refreshPromise)
+    return refreshPromise;
   refreshPromise = (async () => {
-    if (cachedKey) return;
+    if (cachedKey)
+      return;
     try {
       const resp = await fetchFn("https://us-east-1.signin.aws/assets/js/app.js", {
         headers: {
@@ -10208,9 +10214,12 @@ async function refreshAppJSConfig(fetchFn) {
       const js = await resp.text();
       if (js) {
         const result = extractFromAppJS(js);
-        if (result.key) cachedKey = result.key;
-        if (result.identifier) cachedIdentifier = result.identifier;
-        if (result.version) cachedVersion = result.version;
+        if (result.key)
+          cachedKey = result.key;
+        if (result.identifier)
+          cachedIdentifier = result.identifier;
+        if (result.version)
+          cachedVersion = result.version;
       }
     } catch (err) {
       console.log("[xxtea] 下载 app.js 失败:", err);
@@ -10219,8 +10228,10 @@ async function refreshAppJSConfig(fetchFn) {
       console.log("[xxtea] 使用 fallback 密钥");
       cachedKey = [...FALLBACK_KEY];
     }
-    if (!cachedVersion) cachedVersion = FALLBACK_VER;
-    if (!cachedIdentifier) cachedIdentifier = FALLBACK_IDENTIFIER;
+    if (!cachedVersion)
+      cachedVersion = FALLBACK_VER;
+    if (!cachedIdentifier)
+      cachedIdentifier = FALLBACK_IDENTIFIER;
   })();
   return refreshPromise;
 }
@@ -10234,15 +10245,20 @@ function getActiveKey() {
   return cachedKey ? [...cachedKey] : [...FALLBACK_KEY];
 }
 function xxteaEncryptCore(plaintext, key) {
-  if (!plaintext.length) return Buffer.alloc(0);
+  if (!plaintext.length)
+    return Buffer.alloc(0);
   const n = Math.ceil(plaintext.length / 4);
   const v = new Uint32Array(n);
   for (let i = 0; i < n; i++) {
     let b0 = 0, b1 = 0, b2 = 0, b3 = 0;
-    if (4 * i < plaintext.length) b0 = plaintext.charCodeAt(4 * i);
-    if (4 * i + 1 < plaintext.length) b1 = plaintext.charCodeAt(4 * i + 1);
-    if (4 * i + 2 < plaintext.length) b2 = plaintext.charCodeAt(4 * i + 2);
-    if (4 * i + 3 < plaintext.length) b3 = plaintext.charCodeAt(4 * i + 3);
+    if (4 * i < plaintext.length)
+      b0 = plaintext.charCodeAt(4 * i);
+    if (4 * i + 1 < plaintext.length)
+      b1 = plaintext.charCodeAt(4 * i + 1);
+    if (4 * i + 2 < plaintext.length)
+      b2 = plaintext.charCodeAt(4 * i + 2);
+    if (4 * i + 3 < plaintext.length)
+      b3 = plaintext.charCodeAt(4 * i + 3);
     v[i] = (b0 | b1 << 8 | b2 << 16 | b3 << 24) >>> 0;
   }
   const rounds = 6 + Math.floor(52 / n);
@@ -10292,7 +10308,8 @@ function crc32(str) {
 }
 let _crc32Table = null;
 function crc32Table() {
-  if (_crc32Table) return _crc32Table;
+  if (_crc32Table)
+    return _crc32Table;
   _crc32Table = new Uint32Array(256);
   for (let i = 0; i < 256; i++) {
     let c = i >>> 0;
@@ -10316,11 +10333,13 @@ function crc32Str(str) {
 }
 let _t = null;
 function getCrc32Table() {
-  if (_t) return _t;
+  if (_t)
+    return _t;
   _t = new Uint32Array(256);
   for (let i = 0; i < 256; i++) {
     let c = i >>> 0;
-    for (let j = 0; j < 8; j++) c = c & 1 ? (3988292384 ^ c >>> 1) >>> 0 : c >>> 1;
+    for (let j = 0; j < 8; j++)
+      c = c & 1 ? (3988292384 ^ c >>> 1) >>> 0 : c >>> 1;
     _t[i] = c;
   }
   return _t;
@@ -10329,7 +10348,8 @@ class OrderedMap {
   keys = [];
   values = /* @__PURE__ */ new Map();
   set(key, value) {
-    if (!this.values.has(key)) this.keys.push(key);
+    if (!this.values.has(key))
+      this.keys.push(key);
     this.values.set(key, value);
   }
   toJSON() {
@@ -10389,7 +10409,8 @@ function genPerfTiming(nowMs) {
   };
 }
 function getPerfTiming(ctx, nowMs) {
-  if (!ctx.perfTiming) ctx.perfTiming = genPerfTiming(nowMs);
+  if (!ctx.perfTiming)
+    ctx.perfTiming = genPerfTiming(nowMs);
   return ctx.perfTiming;
 }
 function getLsUbid(ctx, pageType) {
@@ -10403,7 +10424,8 @@ function getLsUbid(ctx, pageType) {
   return ctx.lsUbidSignin;
 }
 function getStartTime(ctx, nowMs) {
-  if (ctx.startTime === null) ctx.startTime = nowMs;
+  if (ctx.startTime === null)
+    ctx.startTime = nowMs;
   return ctx.startTime;
 }
 function genMetricsFirstLoad(pageType) {
@@ -10688,18 +10710,7 @@ function buildFingerprintData(identity, locationURL, referrer, nowMs, ctx, pageT
 }
 function generateFingerprint(identity, locationURL, referrer, ctx, pageType, eventType, timeOnPage, emailLen, email) {
   const nowMs = Date.now();
-  const fpData = buildFingerprintData(
-    identity,
-    locationURL,
-    referrer,
-    nowMs,
-    ctx,
-    pageType,
-    eventType,
-    timeOnPage,
-    emailLen,
-    email
-  );
+  const fpData = buildFingerprintData(identity, locationURL, referrer, nowMs, ctx, pageType, eventType, timeOnPage, emailLen, email);
   const jsonStr = fpData.toJSON();
   return encryptFingerprint(jsonStr);
 }
@@ -10740,14 +10751,11 @@ function encryptPassword(password, publicKey, issuer, audience, region) {
   const headerB64 = b64url(headerJSON);
   const cek = crypto$1.randomBytes(32);
   const pubKey = jwkToPublicKey(publicKey);
-  const encryptedCEK = crypto$1.publicEncrypt(
-    {
-      key: pubKey,
-      padding: crypto$1.constants.RSA_PKCS1_OAEP_PADDING,
-      oaepHash: "sha256"
-    },
-    cek
-  );
+  const encryptedCEK = crypto$1.publicEncrypt({
+    key: pubKey,
+    padding: crypto$1.constants.RSA_PKCS1_OAEP_PADDING,
+    oaepHash: "sha256"
+  }, cek);
   const now = Math.floor(Date.now() / 1e3);
   const claims = {
     iss: `${region}.${issuer}`,
@@ -10771,7 +10779,8 @@ const DEFAULT_SEC_UA = '"Chromium";v="148", "Microsoft Edge";v="148", "Not/A)Bra
 function hex4() {
   const chars = "0123456789abcdef";
   let s = "";
-  for (let i = 0; i < 4; i++) s += chars[Math.floor(Math.random() * 16)];
+  for (let i = 0; i < 4; i++)
+    s += chars[Math.floor(Math.random() * 16)];
   return s;
 }
 function visitorId() {
@@ -10825,7 +10834,8 @@ function extractParam(rawURL, key) {
 }
 function splitAfter(s, sep) {
   const idx = s.indexOf(sep);
-  if (idx < 0) return "";
+  if (idx < 0)
+    return "";
   const rest = s.slice(idx + sep.length);
   const ampIdx = rest.indexOf("&");
   return ampIdx >= 0 ? rest.slice(0, ampIdx) : rest;
@@ -10833,31 +10843,38 @@ function splitAfter(s, sep) {
 function getNestedMap(data, ...keys) {
   let current = data;
   for (const k of keys) {
-    if (typeof current !== "object" || current === null) return null;
+    if (typeof current !== "object" || current === null)
+      return null;
     current = current[k];
   }
   return typeof current === "object" && current !== null ? current : null;
 }
 function getNestedStringMap(data, key) {
-  if (!data) return null;
+  if (!data)
+    return null;
   const nested = data[key];
-  if (typeof nested !== "object" || nested === null) return null;
+  if (typeof nested !== "object" || nested === null)
+    return null;
   const result = {};
   for (const [k, v] of Object.entries(nested)) {
-    if (typeof v === "string") result[k] = v;
+    if (typeof v === "string")
+      result[k] = v;
   }
   return Object.keys(result).length > 0 ? result : null;
 }
 function saveCookies(cookies, headers) {
   const skip = /* @__PURE__ */ new Set(["path", "domain", "expires", "max-age", "secure", "httponly", "samesite"]);
   const setCookieHeader = headers["set-cookie"];
-  if (!setCookieHeader) return;
+  if (!setCookieHeader)
+    return;
   const values = Array.isArray(setCookieHeader) ? setCookieHeader : [setCookieHeader];
   for (const raw of values) {
-    if (!raw.includes("=")) continue;
+    if (!raw.includes("="))
+      continue;
     const mainPart = raw.split(";")[0];
     const eqIdx = mainPart.indexOf("=");
-    if (eqIdx < 0) continue;
+    if (eqIdx < 0)
+      continue;
     const k = mainPart.slice(0, eqIdx).trim();
     const v = mainPart.slice(eqIdx + 1).trim();
     if (!skip.has(k.toLowerCase()) && k) {
@@ -10882,16 +10899,19 @@ async function proxyFetch(url2, options) {
 const OTP_PATTERN = /\b(\d{6})\b/g;
 function extractCode(body) {
   const matches = body.match(OTP_PATTERN);
-  if (!matches || matches.length === 0) return "";
+  if (!matches || matches.length === 0)
+    return "";
   return matches[matches.length - 1];
 }
 function parseProvidedEmailLines(data) {
   return data.split(/\r?\n/).map((line) => line.trim()).filter(Boolean).map((line) => {
     const idx = line.indexOf(":");
-    if (idx <= 0) return null;
+    if (idx <= 0)
+      return null;
     const email = line.slice(0, idx).trim();
     const password = line.slice(idx + 1).trim();
-    if (!email || !password || !email.includes("@")) return null;
+    if (!email || !password || !email.includes("@"))
+      return null;
     return { email, password };
   }).filter((item) => Boolean(item));
 }
@@ -10919,7 +10939,8 @@ class GenericIMAPClient {
   }
   readLine() {
     return new Promise((resolve, reject) => {
-      if (!this.socket) return reject(new Error("Not connected"));
+      if (!this.socket)
+        return reject(new Error("Not connected"));
       const check = () => {
         const idx = this.buffer.indexOf("\r\n");
         if (idx >= 0) {
@@ -10944,7 +10965,8 @@ class GenericIMAPClient {
     });
   }
   async sendCommand(cmd) {
-    if (!this.socket) throw new Error("Not connected");
+    if (!this.socket)
+      throw new Error("Not connected");
     this.tagCounter++;
     const tag = `G${String(this.tagCounter).padStart(3, "0")}`;
     this.socket.write(`${tag} ${cmd}\r
@@ -10955,7 +10977,8 @@ class GenericIMAPClient {
     const lines = [];
     while (true) {
       const line = await this.readLine();
-      if (line.startsWith(`${tag} `)) return { lines, result: line };
+      if (line.startsWith(`${tag} `))
+        return { lines, result: line };
       lines.push(line);
     }
   }
@@ -10963,28 +10986,33 @@ class GenericIMAPClient {
     const esc = (v) => v.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
     const tag = await this.sendCommand(`LOGIN "${esc(email)}" "${esc(password)}"`);
     const { result } = await this.readUntilTag(tag);
-    if (!/OK/i.test(result)) throw new Error(`LOGIN failed: ${result}`);
+    if (!/OK/i.test(result))
+      throw new Error(`LOGIN failed: ${result}`);
   }
   async selectInbox() {
     const tag = await this.sendCommand("SELECT INBOX");
     const { result } = await this.readUntilTag(tag);
-    if (!/OK/i.test(result)) throw new Error(`SELECT INBOX failed: ${result}`);
+    if (!/OK/i.test(result))
+      throw new Error(`SELECT INBOX failed: ${result}`);
   }
   async searchFromUid(sender, minUid) {
     const tag = await this.sendCommand(`UID SEARCH UID ${minUid}:* FROM "${sender}"`);
     const { lines, result } = await this.readUntilTag(tag);
-    if (!/OK/i.test(result)) throw new Error(`SEARCH failed: ${result}`);
+    if (!/OK/i.test(result))
+      throw new Error(`SEARCH failed: ${result}`);
     const found = [];
     for (const line of lines) {
       const m = line.match(/^\* SEARCH\s*(.*)$/i);
-      if (m?.[1]) found.push(...m[1].trim().split(/\s+/).filter(Boolean));
+      if (m?.[1])
+        found.push(...m[1].trim().split(/\s+/).filter(Boolean));
     }
     return found;
   }
   async fetchBodyByUID(uid) {
     const tag = await this.sendCommand(`UID FETCH ${uid} (BODY.PEEK[])`);
     const { lines, result } = await this.readUntilTag(tag);
-    if (!/OK/i.test(result)) throw new Error(`FETCH failed: ${result}`);
+    if (!/OK/i.test(result))
+      throw new Error(`FETCH failed: ${result}`);
     return decodeMimeBody(lines.join("\n"));
   }
   async markSeen(uid) {
@@ -11028,43 +11056,42 @@ class ProvidedEmailService {
   async beforeSendCode() {
     this.baselineTime = Date.now();
     if (this.apiKey) {
-      console.log(
-        `[FirstMail] Baseline time before OTP send: ${new Date(this.baselineTime).toISOString()}`
-      );
+      console.log(`[FirstMail] Baseline time before OTP send: ${new Date(this.baselineTime).toISOString()}`);
       return;
     }
     try {
       this.baselineAwsUid = await this.getLatestAwsUid();
       console.log(`[ProvidedEmail] Baseline AWS mail UID before OTP send: ${this.baselineAwsUid}`);
     } catch (err) {
-      console.log(
-        `[ProvidedEmail] Failed to capture baseline (will use 0): ${err instanceof Error ? err.message : String(err)}`
-      );
+      console.log(`[ProvidedEmail] Failed to capture baseline (will use 0): ${err instanceof Error ? err.message : String(err)}`);
       this.baselineAwsUid = "0";
     }
   }
   async waitForCode(timeoutSec, intervalSec, abortCheck) {
-    if (!this.address) throw new Error("邮箱地址为空");
-    if (this.apiKey) return this.waitForCodeViaFirstMailAPI(timeoutSec, intervalSec, abortCheck);
+    if (!this.address)
+      throw new Error("邮箱地址为空");
+    if (this.apiKey)
+      return this.waitForCodeViaFirstMailAPI(timeoutSec, intervalSec, abortCheck);
     const maxRetries = Math.floor(timeoutSec / intervalSec);
     const checkedUids = /* @__PURE__ */ new Set();
     const minUid = String((Number.parseInt(this.baselineAwsUid || "0", 10) || 0) + 1);
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
-      if (abortCheck?.()) throw new Error("Registration cancelled");
+      if (abortCheck?.())
+        throw new Error("Registration cancelled");
       await sleep$3(intervalSec * 1e3);
-      if (abortCheck?.()) throw new Error("Registration cancelled");
+      if (abortCheck?.())
+        throw new Error("Registration cancelled");
       let client = null;
       try {
         client = await this.connectClient();
         const uids = await client.searchFromUid("no-reply@signin.aws", minUid);
         const sortedUids = uids.sort((a, b) => Number.parseInt(b, 10) - Number.parseInt(a, 10));
         if (attempt === 1 || attempt % 5 === 0) {
-          console.log(
-            `[ProvidedEmail] [${attempt}/${maxRetries}] AWS UIDs: [${sortedUids.join(",")}]`
-          );
+          console.log(`[ProvidedEmail] [${attempt}/${maxRetries}] AWS UIDs: [${sortedUids.join(",")}]`);
         }
         for (const uid of sortedUids.slice(0, 10)) {
-          if (checkedUids.has(uid)) continue;
+          if (checkedUids.has(uid))
+            continue;
           checkedUids.add(uid);
           const body = await client.fetchBodyByUID(uid);
           const code = extractCode(body);
@@ -11089,9 +11116,11 @@ class ProvidedEmailService {
     const checkedIds = /* @__PURE__ */ new Set();
     const baseline = this.baselineTime || Date.now();
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
-      if (abortCheck?.()) throw new Error("Registration cancelled");
+      if (abortCheck?.())
+        throw new Error("Registration cancelled");
       await sleep$3(intervalSec * 1e3);
-      if (abortCheck?.()) throw new Error("Registration cancelled");
+      if (abortCheck?.())
+        throw new Error("Registration cancelled");
       try {
         const messages = await this.fetchFirstMailMessages();
         if (attempt === 1 || attempt % 5 === 0) {
@@ -11099,9 +11128,11 @@ class ProvidedEmailService {
         }
         for (const msg of messages) {
           const id = String(msg.id || msg.uid || `${msg.date || ""}-${msg.subject || ""}`);
-          if (checkedIds.has(id)) continue;
+          if (checkedIds.has(id))
+            continue;
           const msgTime = Date.parse(String(msg.date || msg.created_at || ""));
-          if (Number.isFinite(msgTime) && msgTime + 1e4 < baseline) continue;
+          if (Number.isFinite(msgTime) && msgTime + 1e4 < baseline)
+            continue;
           const sender = String(msg.from || "").toLowerCase();
           const subject = String(msg.subject || "");
           const text = String(msg.body_text || "");
@@ -11119,7 +11150,8 @@ ${html}`;
           checkedIds.add(id);
         }
       } catch (err) {
-        if (attempt % 5 === 0) console.log(`[FirstMail] [${attempt}/${maxRetries}] 查询失败:`, err);
+        if (attempt % 5 === 0)
+          console.log(`[FirstMail] [${attempt}/${maxRetries}] 查询失败:`, err);
       }
     }
     throw new Error(`等待验证码超时 (${timeoutSec}s)`);
@@ -11141,23 +11173,22 @@ ${html}`;
     });
     const raw = await resp.json();
     if (!resp.ok || raw.success === false) {
-      throw new Error(
-        `FirstMail API error ${resp.status}: ${String(raw.error || JSON.stringify(raw)).slice(0, 300)}`
-      );
+      throw new Error(`FirstMail API error ${resp.status}: ${String(raw.error || JSON.stringify(raw)).slice(0, 300)}`);
     }
     const data = raw.data;
-    if (Array.isArray(data?.messages)) return data.messages;
-    if (Array.isArray(raw.messages)) return raw.messages;
+    if (Array.isArray(data?.messages))
+      return data.messages;
+    if (Array.isArray(raw.messages))
+      return raw.messages;
     return [];
   }
   async getLatestAwsUid() {
     const client = await this.connectClient();
     try {
       const uids = await client.searchFromUid("no-reply@signin.aws", "1");
-      if (uids.length === 0) return "0";
-      return uids.reduce(
-        (max, uid) => Number.parseInt(uid, 10) > Number.parseInt(max, 10) ? uid : max
-      );
+      if (uids.length === 0)
+        return "0";
+      return uids.reduce((max, uid) => Number.parseInt(uid, 10) > Number.parseInt(max, 10) ? uid : max);
     } finally {
       client.close();
     }
@@ -11199,7 +11230,8 @@ class MoEmailService {
    */
   static normalizeBaseURL(raw) {
     const trimmed = (raw || "").trim().replace(/\/+$/, "");
-    if (!trimmed) throw new Error("MoEmail BaseURL 未配置");
+    if (!trimmed)
+      throw new Error("MoEmail BaseURL 未配置");
     const withScheme = /^[a-z][a-z0-9+.-]*:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
     let u;
     try {
@@ -11215,7 +11247,8 @@ class MoEmailService {
   async create() {
     const url2 = `${this.baseURL}/api/mail/create`;
     const headers = { "Content-Type": "application/json" };
-    if (this.apiKey) headers["Authorization"] = `Bearer ${this.apiKey}`;
+    if (this.apiKey)
+      headers["Authorization"] = `Bearer ${this.apiKey}`;
     const resp = await proxyFetch(url2, {
       method: "POST",
       headers,
@@ -11231,19 +11264,25 @@ class MoEmailService {
     return addr;
   }
   async waitForCode(timeoutSec, intervalSec, abortCheck) {
-    if (!this.address) throw new Error("邮箱地址为空");
+    if (!this.address)
+      throw new Error("邮箱地址为空");
     const maxRetries = Math.floor(timeoutSec / intervalSec);
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
-      if (abortCheck?.()) throw new Error("Registration cancelled");
+      if (abortCheck?.())
+        throw new Error("Registration cancelled");
       await sleep$3(intervalSec * 1e3);
-      if (abortCheck?.()) throw new Error("Registration cancelled");
+      if (abortCheck?.())
+        throw new Error("Registration cancelled");
       try {
         const code = await this.fetchCode();
-        if (code) return code;
+        if (code)
+          return code;
       } catch (err) {
-        if (attempt % 5 === 0) console.log(`[MoEmail] [${attempt}/${maxRetries}] 查询失败:`, err);
+        if (attempt % 5 === 0)
+          console.log(`[MoEmail] [${attempt}/${maxRetries}] 查询失败:`, err);
       }
-      if (attempt % 5 === 0) console.log(`[MoEmail] [${attempt}/${maxRetries}] 暂无验证码...`);
+      if (attempt % 5 === 0)
+        console.log(`[MoEmail] [${attempt}/${maxRetries}] 暂无验证码...`);
     }
     throw new Error(`等待验证码超时 (${timeoutSec}s)`);
   }
@@ -11253,7 +11292,8 @@ class MoEmailService {
   async fetchCode() {
     const url2 = `${this.baseURL}/api/mail/messages?address=${this.address}`;
     const headers = {};
-    if (this.apiKey) headers["Authorization"] = `Bearer ${this.apiKey}`;
+    if (this.apiKey)
+      headers["Authorization"] = `Bearer ${this.apiKey}`;
     const resp = await proxyFetch(url2, { headers, signal: AbortSignal.timeout(15e3) });
     const raw = await resp.json();
     let messages = [];
@@ -11269,7 +11309,8 @@ class MoEmailService {
       const text = msg.text || msg.body || msg.html || "";
       if (text) {
         const code = extractCode(text);
-        if (code) return code;
+        if (code)
+          return code;
       }
     }
     return "";
@@ -11393,8 +11434,10 @@ function randomEmailPrefix() {
   const first = FIRST_NAMES[Math.floor(Math.random() * FIRST_NAMES.length)];
   const last = LAST_NAMES[Math.floor(Math.random() * LAST_NAMES.length)];
   const r = Math.random();
-  if (r < 0.5) return `${first}.${last}`;
-  if (r < 0.75) return `${first}${last}`;
+  if (r < 0.5)
+    return `${first}.${last}`;
+  if (r < 0.75)
+    return `${first}${last}`;
   const digits = String(Math.floor(Math.random() * 100)).padStart(2, "0");
   return `${first}.${last}${digits}`;
 }
@@ -11430,13 +11473,16 @@ class TempMailPlusService {
     return this.address;
   }
   async waitForCode(timeoutSec, intervalSec, abortCheck) {
-    if (!this.address) throw new Error("邮箱地址为空");
+    if (!this.address)
+      throw new Error("邮箱地址为空");
     const maxRetries = Math.floor(timeoutSec / intervalSec);
     const checkedIds = /* @__PURE__ */ new Set();
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
-      if (abortCheck?.()) throw new Error("Registration cancelled");
+      if (abortCheck?.())
+        throw new Error("Registration cancelled");
       await sleep$3(intervalSec * 1e3);
-      if (abortCheck?.()) throw new Error("Registration cancelled");
+      if (abortCheck?.())
+        throw new Error("Registration cancelled");
       try {
         const mails = await this.fetchMailList();
         if (attempt === 1 || attempt % 5 === 0) {
@@ -11444,10 +11490,12 @@ class TempMailPlusService {
         }
         for (const mail of mails) {
           const mailId = mail.mail_id;
-          if (checkedIds.has(mailId)) continue;
+          if (checkedIds.has(mailId))
+            continue;
           checkedIds.add(mailId);
           const detail = await this.fetchMailDetail(mailId);
-          if (!detail) continue;
+          if (!detail)
+            continue;
           const toField = String(detail.to || "").toLowerCase();
           if (!toField.includes(this.address.toLowerCase())) {
             console.log(`[TempMailPlus] 收件人不匹配: ${toField} (期望包含: ${this.address})`);
@@ -11465,7 +11513,8 @@ class TempMailPlusService {
       } catch (err) {
         console.log(`[TempMailPlus] [${attempt}/${maxRetries}] 查询失败:`, err);
       }
-      if (attempt % 5 === 0) console.log(`[TempMailPlus] [${attempt}/${maxRetries}] 暂无验证码...`);
+      if (attempt % 5 === 0)
+        console.log(`[TempMailPlus] [${attempt}/${maxRetries}] 暂无验证码...`);
     }
     throw new Error(`等待验证码超时 (${timeoutSec}s)`);
   }
@@ -11479,7 +11528,8 @@ class TempMailPlusService {
       signal: AbortSignal.timeout(15e3)
     });
     const data = await resp.json();
-    if (!data.result) return [];
+    if (!data.result)
+      return [];
     return data.mail_list || [];
   }
   async fetchMailDetail(mailId) {
@@ -11508,10 +11558,12 @@ class TempMailPlusService {
   extractOTP(detail) {
     const subject = String(detail.subject || "");
     const subjectMatch = subject.match(/(\d{6})/);
-    if (subjectMatch) return subjectMatch[1];
+    if (subjectMatch)
+      return subjectMatch[1];
     const text = String(detail.text || "");
     const code = extractCode(text);
-    if (code) return code;
+    if (code)
+      return code;
     const html = String(detail.html || "");
     return extractCode(html);
   }
@@ -11519,11 +11571,13 @@ class TempMailPlusService {
 function parseOutlookLines(data) {
   const accounts = [];
   data = data.trim();
-  if (!data) return accounts;
+  if (!data)
+    return accounts;
   const lines = data.split("\n");
   const parseEntry = (entry) => {
     entry = entry.trim();
-    if (!entry) return;
+    if (!entry)
+      return;
     const parts = entry.split("----");
     if (parts.length === 4) {
       accounts.push({
@@ -11535,9 +11589,11 @@ function parseOutlookLines(data) {
     }
   };
   if (lines.length === 1) {
-    for (const part of data.split(/\s+/)) parseEntry(part);
+    for (const part of data.split(/\s+/))
+      parseEntry(part);
   } else {
-    for (const line of lines) parseEntry(line);
+    for (const line of lines)
+      parseEntry(line);
   }
   return accounts;
 }
@@ -11557,7 +11613,8 @@ async function refreshOutlookToken(acc) {
   if (resp.status !== 200)
     throw new Error(`刷新失败 ${resp.status}: ${JSON.stringify(data).slice(0, 300)}`);
   const token = data.access_token;
-  if (!token) throw new Error("响应中无 access_token");
+  if (!token)
+    throw new Error("响应中无 access_token");
   return token;
 }
 function buildXOAuth2(email, accessToken) {
@@ -11590,7 +11647,8 @@ class IMAPClient {
   }
   readLine() {
     return new Promise((resolve, reject) => {
-      if (!this.socket) return reject(new Error("未连接"));
+      if (!this.socket)
+        return reject(new Error("未连接"));
       const check = () => {
         const idx = this.buffer.indexOf("\r\n");
         if (idx >= 0) {
@@ -11616,7 +11674,8 @@ class IMAPClient {
     });
   }
   async sendCommand(cmd) {
-    if (!this.socket) throw new Error("未连接");
+    if (!this.socket)
+      throw new Error("未连接");
     this.tag++;
     const tagStr = `A${String(this.tag).padStart(3, "0")}`;
     this.socket.write(`${tagStr} ${cmd}\r
@@ -11627,7 +11686,8 @@ class IMAPClient {
     const lines = [];
     while (true) {
       const line = await this.readLine();
-      if (line.startsWith(`${tag} `)) return { lines, result: line };
+      if (line.startsWith(`${tag} `))
+        return { lines, result: line };
       lines.push(line);
     }
   }
@@ -11635,7 +11695,8 @@ class IMAPClient {
     const xoauth2 = buildXOAuth2(email, accessToken);
     const tag = await this.sendCommand(`AUTHENTICATE XOAUTH2 ${xoauth2}`);
     const { result } = await this.readUntilTag(tag);
-    if (!result.includes("OK")) throw new Error(`认证失败: ${result}`);
+    if (!result.includes("OK"))
+      throw new Error(`认证失败: ${result}`);
     console.log("[IMAP] 认证成功");
     await sleep$3(800);
   }
@@ -11646,7 +11707,8 @@ class IMAPClient {
       if (result.includes("OK")) {
         for (const line of lines) {
           const m = line.match(/\*\s+(\d+)\s+EXISTS/);
-          if (m) return parseInt(m[1], 10);
+          if (m)
+            return parseInt(m[1], 10);
         }
         return 0;
       }
@@ -11658,10 +11720,12 @@ class IMAPClient {
     throw new Error("SELECT INBOX 重试耗尽");
   }
   async fetchLatestBody(seq) {
-    if (seq <= 0) throw new Error("无效的邮件序号");
+    if (seq <= 0)
+      throw new Error("无效的邮件序号");
     const tag = await this.sendCommand(`FETCH ${seq} (BODY.PEEK[TEXT])`);
     const { lines, result } = await this.readUntilTag(tag);
-    if (!result.includes("OK")) throw new Error(`FETCH TEXT 失败: ${result}`);
+    if (!result.includes("OK"))
+      throw new Error(`FETCH TEXT 失败: ${result}`);
     const rawLines = [];
     let inBody = false;
     for (const line of lines) {
@@ -11669,8 +11733,10 @@ class IMAPClient {
         inBody = true;
         continue;
       }
-      if (line === ")") continue;
-      if (inBody) rawLines.push(line);
+      if (line === ")")
+        continue;
+      if (inBody)
+        rawLines.push(line);
     }
     const raw = rawLines.join("\n");
     const parts = raw.split("------=_Part_");
@@ -11686,7 +11752,8 @@ class IMAPClient {
         }
       }
     }
-    if (decoded) return decoded;
+    if (decoded)
+      return decoded;
     const cleaned = raw.replace(/[\s]/g, "");
     try {
       return Buffer.from(cleaned, "base64").toString();
@@ -11721,7 +11788,8 @@ async function waitForOTP(acc, beforeCount, timeout, interval, abortCheck) {
   let accessToken = await refreshOutlookToken(acc);
   const maxRetries = Math.floor(timeout / interval);
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
-    if (abortCheck?.()) throw new Error("Registration cancelled");
+    if (abortCheck?.())
+      throw new Error("Registration cancelled");
     let client = null;
     try {
       client = new IMAPClient();
@@ -11732,7 +11800,8 @@ async function waitForOTP(acc, beforeCount, timeout, interval, abortCheck) {
         if (attempt % 5 === 0)
           console.log(`[Outlook IMAP] [${attempt}/${maxRetries}] 暂无新邮件 (当前${total}封)...`);
         await sleep$3(interval * 1e3);
-        if (abortCheck?.()) throw new Error("Registration cancelled");
+        if (abortCheck?.())
+          throw new Error("Registration cancelled");
         continue;
       }
       for (let i = total; i > beforeCount; i--) {
@@ -11749,7 +11818,8 @@ async function waitForOTP(acc, beforeCount, timeout, interval, abortCheck) {
       if (attempt % 5 === 0)
         console.log(`[Outlook IMAP] [${attempt}/${maxRetries}] 新邮件中未找到验证码...`);
     } catch (err) {
-      if (attempt % 5 === 0) console.log(`[Outlook IMAP] 连接失败:`, err);
+      if (attempt % 5 === 0)
+        console.log(`[Outlook IMAP] 连接失败:`, err);
       try {
         accessToken = await refreshOutlookToken(acc);
       } catch {
@@ -11798,7 +11868,8 @@ class DuckDuckGoEmailService {
     }
     const data = await resp.json();
     const username = data.address;
-    if (!username) throw new Error("No address returned from DDG API");
+    if (!username)
+      throw new Error("No address returned from DDG API");
     this.address = `${username}@duck.com`;
     console.log(`[DDG] Generated address: ${this.address}`);
     return this.address;
@@ -11812,14 +11883,13 @@ class DuckDuckGoEmailService {
       this.baselineAwsUid = await service.getLatestAwsUid();
       console.log(`[DDG] Baseline AWS mail UID before OTP send: ${this.baselineAwsUid}`);
     } catch (err) {
-      console.log(
-        `[DDG] Failed to capture AWS mail UID baseline (will use 0): ${err instanceof Error ? err.message : String(err)}`
-      );
+      console.log(`[DDG] Failed to capture AWS mail UID baseline (will use 0): ${err instanceof Error ? err.message : String(err)}`);
       this.baselineAwsUid = "0";
     }
   }
   async waitForCode(timeoutSec, intervalSec, abortCheck) {
-    if (!this.address) throw new Error("Address not created yet");
+    if (!this.address)
+      throw new Error("Address not created yet");
     const service = new GmailIMAPService(this.gmailAccount, this.address, this.baselineAwsUid);
     return service.waitForCode(timeoutSec, intervalSec, abortCheck);
   }
@@ -11839,9 +11909,11 @@ class GmailIMAPService {
     const baselineUidNum = Number.parseInt(this.baselineAwsUid || "0", 10) || 0;
     console.log(`[Gmail IMAP] Waiting for AWS OTP after UID ${baselineUidNum}`);
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
-      if (abortCheck?.()) throw new Error("Registration cancelled");
+      if (abortCheck?.())
+        throw new Error("Registration cancelled");
       await sleep$3(intervalSec * 1e3);
-      if (abortCheck?.()) throw new Error("Registration cancelled");
+      if (abortCheck?.())
+        throw new Error("Registration cancelled");
       let client = null;
       try {
         client = new GmailIMAPClient();
@@ -11854,36 +11926,31 @@ class GmailIMAPService {
         await client.selectInbox();
         const uids = await client.searchFromUid("no-reply@signin.aws", String(baselineUidNum + 1));
         const sortedUids = uids.sort((a, b) => Number.parseInt(b, 10) - Number.parseInt(a, 10));
-        console.log(
-          `[Gmail IMAP] [${attempt}/${maxRetries}] AWS sender UIDs after baseline: [${sortedUids.join(",")}]`
-        );
-        if (sortedUids.length === 0) continue;
+        console.log(`[Gmail IMAP] [${attempt}/${maxRetries}] AWS sender UIDs after baseline: [${sortedUids.join(",")}]`);
+        if (sortedUids.length === 0)
+          continue;
         for (const uid of sortedUids.slice(0, 10)) {
-          if (checkedUids.has(uid)) continue;
+          if (checkedUids.has(uid))
+            continue;
           checkedUids.add(uid);
           const body = await client.fetchBodyByUID(uid);
-          if (!body) continue;
+          if (!body)
+            continue;
           const containsAlias = !this.filterForAddress || body.toLowerCase().includes(this.filterForAddress);
           const code = extractCode(body);
           if (code) {
             if (!containsAlias) {
-              console.log(
-                `[Gmail IMAP] UID ${uid} has OTP but does not mention ${this.filterForAddress}; accepting because it is newer than baseline`
-              );
+              console.log(`[Gmail IMAP] UID ${uid} has OTP but does not mention ${this.filterForAddress}; accepting because it is newer than baseline`);
             }
             console.log(`[Gmail IMAP] Got OTP: ${code} from UID ${uid}`);
             await client.markSeen(uid);
             return code;
           } else {
-            console.log(
-              `[Gmail IMAP] UID ${uid} from AWS but no 6-digit code found, body length: ${body.length}, aliasMatch=${containsAlias}`
-            );
+            console.log(`[Gmail IMAP] UID ${uid} from AWS but no 6-digit code found, body length: ${body.length}, aliasMatch=${containsAlias}`);
           }
         }
       } catch (err) {
-        console.log(
-          `[Gmail IMAP] [${attempt}/${maxRetries}] Error: ${err instanceof Error ? err.message : String(err)}`
-        );
+        console.log(`[Gmail IMAP] [${attempt}/${maxRetries}] Error: ${err instanceof Error ? err.message : String(err)}`);
       } finally {
         client?.close();
       }
@@ -11901,10 +11968,9 @@ class GmailIMAPService {
       }
       await client.selectInbox();
       const uids = await client.searchFromUid("no-reply@signin.aws", "1");
-      if (uids.length === 0) return "0";
-      return uids.reduce(
-        (max, uid) => Number.parseInt(uid, 10) > Number.parseInt(max, 10) ? uid : max
-      );
+      if (uids.length === 0)
+        return "0";
+      return uids.reduce((max, uid) => Number.parseInt(uid, 10) > Number.parseInt(max, 10) ? uid : max);
     } finally {
       client.close();
     }
@@ -11917,7 +11983,8 @@ function decodeMimeBody(raw) {
   let collectingContent = false;
   const contentLines = [];
   const flushContent = () => {
-    if (contentLines.length === 0) return;
+    if (contentLines.length === 0)
+      return;
     const content = contentLines.join("\n");
     const enc = encoding.toLowerCase().trim();
     if (enc === "base64") {
@@ -11989,7 +12056,8 @@ class GmailIMAPClient {
     const escaped = password.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
     const tag = await this.sendCommand(`LOGIN "${email}" "${escaped}"`);
     const { result } = await this.readUntilTag(tag);
-    if (!result.includes("OK")) throw new Error(`Gmail LOGIN failed: ${result}`);
+    if (!result.includes("OK"))
+      throw new Error(`Gmail LOGIN failed: ${result}`);
     console.log("[Gmail IMAP] Authenticated (plain)");
   }
   async authenticateXOAuth2(email, accessToken) {
@@ -11997,16 +12065,19 @@ class GmailIMAPClient {
     const b64 = Buffer.from(auth).toString("base64");
     const tag = await this.sendCommand(`AUTHENTICATE XOAUTH2 ${b64}`);
     const { result } = await this.readUntilTag(tag);
-    if (!result.includes("OK")) throw new Error(`Gmail XOAUTH2 failed: ${result}`);
+    if (!result.includes("OK"))
+      throw new Error(`Gmail XOAUTH2 failed: ${result}`);
     console.log("[Gmail IMAP] Authenticated (OAuth2)");
   }
   async selectInbox() {
     const tag = await this.sendCommand("SELECT INBOX");
     const { lines, result } = await this.readUntilTag(tag);
-    if (!result.includes("OK")) throw new Error(`SELECT INBOX failed: ${result}`);
+    if (!result.includes("OK"))
+      throw new Error(`SELECT INBOX failed: ${result}`);
     for (const line of lines) {
       const m = line.match(/\*\s+(\d+)\s+EXISTS/);
-      if (m) return parseInt(m[1], 10);
+      if (m)
+        return parseInt(m[1], 10);
     }
     return 0;
   }
@@ -12014,7 +12085,8 @@ class GmailIMAPClient {
   async searchFromUid(sender, uidStart) {
     const tag = await this.sendCommand(`UID SEARCH UID ${uidStart}:* FROM "${sender}"`);
     const { lines, result } = await this.readUntilTag(tag);
-    if (!result.includes("OK")) return [];
+    if (!result.includes("OK"))
+      return [];
     for (const line of lines) {
       if (line.startsWith("* SEARCH")) {
         return line.split(" ").slice(2).filter(Boolean);
@@ -12026,18 +12098,21 @@ class GmailIMAPClient {
   async fetchUidsBySeqRange(from, to) {
     const tag = await this.sendCommand(`FETCH ${from}:${to} (UID)`);
     const { lines, result } = await this.readUntilTag(tag);
-    if (!result.includes("OK")) return [];
+    if (!result.includes("OK"))
+      return [];
     const uids = [];
     for (const line of lines) {
       const m = line.match(/\*\s+\d+\s+FETCH\s+\(UID\s+(\d+)\)/i);
-      if (m) uids.push(m[1]);
+      if (m)
+        uids.push(m[1]);
     }
     return uids;
   }
   async fetchBodyByUID(uid) {
     const tag = await this.sendCommand(`UID FETCH ${uid} (BODY.PEEK[])`);
     const { lines, result } = await this.readUntilTag(tag);
-    if (!result.includes("OK")) return "";
+    if (!result.includes("OK"))
+      return "";
     let inBody = false;
     const bodyLines = [];
     for (const line of lines) {
@@ -12047,7 +12122,8 @@ class GmailIMAPClient {
         }
         continue;
       }
-      if (line === ")") break;
+      if (line === ")")
+        break;
       bodyLines.push(line);
     }
     const raw = bodyLines.join("\r\n");
@@ -12071,7 +12147,8 @@ class GmailIMAPClient {
     return `T${String(++this.tagCounter).padStart(3, "0")}`;
   }
   async sendCommand(cmd) {
-    if (!this.socket) throw new Error("Not connected");
+    if (!this.socket)
+      throw new Error("Not connected");
     const tag = this.nextTag();
     this.socket.write(`${tag} ${cmd}\r
 `);
@@ -12079,7 +12156,8 @@ class GmailIMAPClient {
   }
   readLine() {
     return new Promise((resolve, reject) => {
-      if (!this.socket) return reject(new Error("Not connected"));
+      if (!this.socket)
+        return reject(new Error("Not connected"));
       const idx = this.buffer.indexOf("\r\n");
       if (idx >= 0) {
         const line = this.buffer.slice(0, idx);
@@ -12110,7 +12188,8 @@ class GmailIMAPClient {
     const lines = [];
     while (true) {
       const line = await this.readLine();
-      if (line.startsWith(`${tag} `)) return { lines, result: line };
+      if (line.startsWith(`${tag} `))
+        return { lines, result: line };
       lines.push(line);
     }
   }
@@ -12157,7 +12236,8 @@ class Registrar {
     this.abortController.abort();
   }
   checkAborted() {
-    if (this.abortController.signal.aborted) throw new Error("注册已取消");
+    if (this.abortController.signal.aborted)
+      throw new Error("注册已取消");
   }
   /** TLS SessionClient 选项 */
   get sessionOpts() {
@@ -12185,9 +12265,7 @@ class Registrar {
     this.ensureTlsLib();
     this.moduleClient = new tlsclientwrapper.ModuleClient();
     await this.moduleClient.open();
-    this.log(
-      "[TLS] open() completed, pool stats: " + JSON.stringify(this.moduleClient.getPoolStats())
-    );
+    this.log("[TLS] open() completed, pool stats: " + JSON.stringify(this.moduleClient.getPoolStats()));
     this.session = new tlsclientwrapper.SessionClient(this.moduleClient, this.sessionOpts);
   }
   /**
@@ -12225,9 +12303,7 @@ class Registrar {
     }
     const resourcePath = path2.join(process.resourcesPath || "", filename);
     if (fs2.existsSync(resourcePath)) {
-      this.log(
-        "[TLS] Copying library from resources to userData (one-time): " + resourcePath + " -> " + finalPath
-      );
+      this.log("[TLS] Copying library from resources to userData (one-time): " + resourcePath + " -> " + finalPath);
       try {
         fs2.copyFileSync(resourcePath, finalPath);
         return { existingPath: finalPath, downloadDir: tlsClientDir };
@@ -12235,9 +12311,7 @@ class Registrar {
         this.log("[TLS] Failed to copy from resources: " + err.message);
       }
     }
-    this.log(
-      "[TLS] Library not found in resources, will download from GitHub. Searched: " + resourcePath
-    );
+    this.log("[TLS] Library not found in resources, will download from GitHub. Searched: " + resourcePath);
     return { downloadDir: tlsClientDir };
   }
   async rebuildTlsClient() {
@@ -12271,7 +12345,8 @@ class Registrar {
     return await fetch(url2, init);
   }
   isRecoverableTlsClientError(err) {
-    if (!(err instanceof Error)) return false;
+    if (!(err instanceof Error))
+      return false;
     return err.message.includes("EOF") || err.message.includes("no tls client for modification check") || err.message.includes("failed to modify existing client");
   }
   /** 清理 TLS 客户端资源 */
@@ -12317,9 +12392,12 @@ class Registrar {
       "sec-fetch-mode": "cors",
       "sec-fetch-site": "same-origin"
     };
-    if (referer) h["Referer"] = referer;
-    if (origin) h["Origin"] = origin;
-    if (this.cookies.size > 0) h["Cookie"] = this.cookieString();
+    if (referer)
+      h["Referer"] = referer;
+    if (origin)
+      h["Origin"] = origin;
+    if (this.cookies.size > 0)
+      h["Cookie"] = this.cookieString();
     return h;
   }
   buildProfileHeaders(referer) {
@@ -12339,13 +12417,16 @@ class Registrar {
       priority: "u=1, i"
     };
     const keys = ["awsccc", "aws-user-profile-ubid", "amznfbgid", "i18next"];
-    if (this.cookies.has("awsd2c-token")) keys.push("awsd2c-token", "awsd2c-token-c");
+    if (this.cookies.has("awsd2c-token"))
+      keys.push("awsd2c-token", "awsd2c-token-c");
     const parts = keys.filter((k) => this.cookies.has(k)).map((k) => `${k}=${this.cookies.get(k)}`);
-    if (parts.length) h["Cookie"] = parts.join("; ");
+    if (parts.length)
+      h["Cookie"] = parts.join("; ");
     return h;
   }
   async doGet(url2, headers) {
-    if (!this.session) throw new Error("TLS 客户端未初始化");
+    if (!this.session)
+      throw new Error("TLS 客户端未初始化");
     try {
       const resp = await this.session.get(url2, { headers });
       return {
@@ -12355,9 +12436,7 @@ class Registrar {
       };
     } catch (err) {
       if (this.isRecoverableTlsClientError(err)) {
-        this.log(
-          "[TLS] Recoverable GET error, rebuilding TLS client: " + (err instanceof Error ? err.message : String(err))
-        );
+        this.log("[TLS] Recoverable GET error, rebuilding TLS client: " + (err instanceof Error ? err.message : String(err)));
         await this.rebuildTlsClient();
         const resp = await this.session.get(url2, { headers });
         return {
@@ -12370,7 +12449,8 @@ class Registrar {
     }
   }
   async doPost(url2, payload, headers) {
-    if (!this.session) throw new Error("TLS 客户端未初始化");
+    if (!this.session)
+      throw new Error("TLS 客户端未初始化");
     const body = JSON.stringify(payload);
     try {
       const resp = await this.session.post(url2, body, { headers });
@@ -12381,9 +12461,7 @@ class Registrar {
       };
     } catch (err) {
       if (this.isRecoverableTlsClientError(err)) {
-        this.log(
-          "[TLS] Recoverable POST error, rebuilding TLS client: " + (err instanceof Error ? err.message : String(err))
-        );
+        this.log("[TLS] Recoverable POST error, rebuilding TLS client: " + (err instanceof Error ? err.message : String(err)));
         await this.rebuildTlsClient();
         const resp = await this.session.post(url2, body, { headers });
         return {
@@ -12402,14 +12480,17 @@ class Registrar {
    * 若解码后含 U+FFFD 替换字符比原文多很多，则回退原值（说明原本就是 latin1 / ASCII）。
    */
   decodeBody(body) {
-    if (!body) return "";
+    if (!body)
+      return "";
     try {
-      if (/^[\x00-\x7F]*$/.test(body)) return body;
+      if (/^[\x00-\x7F]*$/.test(body))
+        return body;
       const buf = Buffer.from(body, "latin1");
       const utf8 = buf.toString("utf-8");
       const replaceInOriginal = (body.match(/\uFFFD/g) || []).length;
       const replaceInUtf8 = (utf8.match(/\uFFFD/g) || []).length;
-      if (replaceInUtf8 > replaceInOriginal + 2) return body;
+      if (replaceInUtf8 > replaceInOriginal + 2)
+        return body;
       return utf8;
     } catch {
       return body;
@@ -12427,13 +12508,17 @@ class Registrar {
    * @returns 风控类型标签（如 'AWS-RISK-CONTROL'），不是风控返回 null
    */
   detectRiskControl(body, status) {
-    if (status !== 400) return null;
+    if (status !== 400)
+      return null;
     const lower = body.toLowerCase();
-    if (body.includes("请稍后再试") && body.includes("管理员")) return "AWS-RISK-CONTROL";
-    if (body.includes("发生意外错误")) return "AWS-RISK-CONTROL";
+    if (body.includes("请稍后再试") && body.includes("管理员"))
+      return "AWS-RISK-CONTROL";
+    if (body.includes("发生意外错误"))
+      return "AWS-RISK-CONTROL";
     if (lower.includes("try again later") && lower.includes("administrator"))
       return "AWS-RISK-CONTROL";
-    if (lower.includes("unexpected error") && lower.includes("contact")) return "AWS-RISK-CONTROL";
+    if (lower.includes("unexpected error") && lower.includes("contact"))
+      return "AWS-RISK-CONTROL";
     return null;
   }
   /** 把响应错误格式化为更友好的消息（含风控识别） */
@@ -12460,14 +12545,17 @@ class Registrar {
       priority: "u=1, i"
     };
     const parts = [];
-    if (this.cookies.has("awsccc")) parts.push("awsccc=" + this.cookies.get("awsccc"));
+    if (this.cookies.has("awsccc"))
+      parts.push("awsccc=" + this.cookies.get("awsccc"));
     if (this.cookies.has("awsd2c-token")) {
       const old = this.cookies.get("awsd2c-token");
       parts.push("awsd2c-token=" + old, "awsd2c-token-c=" + old);
     }
-    if (parts.length) headers["Cookie"] = parts.join("; ");
+    if (parts.length)
+      headers["Cookie"] = parts.join("; ");
     const payload = {};
-    if (this.cookies.has("awsd2c-token")) payload.token = this.cookies.get("awsd2c-token");
+    if (this.cookies.has("awsd2c-token"))
+      payload.token = this.cookies.get("awsd2c-token");
     const resp = await this.doPost("https://vs.aws.amazon.com/token", payload, headers);
     saveCookies(this.cookies, resp.headers);
     const data = this.parseBody(resp.body);
@@ -12479,7 +12567,8 @@ class Registrar {
       if (jwtParts.length >= 2) {
         try {
           const decoded = JSON.parse(Buffer.from(jwtParts[1], "base64url").toString());
-          if (decoded.vid) this.vid = decoded.vid;
+          if (decoded.vid)
+            this.vid = decoded.vid;
         } catch {
         }
       }
@@ -12505,24 +12594,15 @@ class Registrar {
         } else {
           loc = `${this.cfg.profileBase}/?workflowID=${this.workflowId}#/signup/start`;
         }
-        if (!this.workflowId) loc = this.cfg.profileBase + "/";
+        if (!this.workflowId)
+          loc = this.cfg.profileBase + "/";
     }
     if (pageType === "profile") {
       ref = `${this.cfg.signinBase}/platform/${did}/signup?workflowStateHandle=${this.workflowHandle}`;
     } else {
       ref = this.cfg.viewBase + "/";
     }
-    return generateFingerprint(
-      this.identity,
-      loc,
-      ref,
-      this.fpCtx,
-      pageType,
-      eventType,
-      timeOnPage,
-      emailLen,
-      emailAddr
-    );
+    return generateFingerprint(this.identity, loc, ref, this.fpCtx, pageType, eventType, timeOnPage, emailLen, emailAddr);
   }
   // ============ 注册步骤 ============
   async step1OIDC() {
@@ -12543,7 +12623,8 @@ class Registrar {
     for (let attempt = 0; attempt < 3; attempt++) {
       try {
         resp = await this.doPost(this.cfg.oidcBase + "/client/register", payload, headers);
-        if (resp.status === 200) break;
+        if (resp.status === 200)
+          break;
       } catch (err) {
         if (attempt < 2) {
           this.log(`[1] OIDC 重试 (${attempt + 1}/3)...`);
@@ -12554,34 +12635,34 @@ class Registrar {
         throw err;
       }
     }
-    if (!resp) throw new Error("OIDC 注册失败: 所有重试均失败");
+    if (!resp)
+      throw new Error("OIDC 注册失败: 所有重试均失败");
     const data = this.parseBody(resp.body);
     this.clientId = data.clientId || "";
     this.clientSecret = data.clientSecret || "";
-    if (!this.clientId) throw new Error(`OIDC 注册失败: ${resp.body.slice(0, 200)}`);
+    if (!this.clientId)
+      throw new Error(`OIDC 注册失败: ${resp.body.slice(0, 200)}`);
   }
   async step2Device() {
     this.log("[2] 设备授权");
-    const resp = await this.doPost(
-      this.cfg.oidcBase + "/device_authorization",
-      {
-        clientId: this.clientId,
-        clientSecret: this.clientSecret,
-        startUrl: this.cfg.startURL
-      },
-      { "Content-Type": "application/json" }
-    );
+    const resp = await this.doPost(this.cfg.oidcBase + "/device_authorization", {
+      clientId: this.clientId,
+      clientSecret: this.clientSecret,
+      startUrl: this.cfg.startURL
+    }, { "Content-Type": "application/json" });
     const data = this.parseBody(resp.body);
     this.deviceCode = data.deviceCode || "";
     this.userCode = data.userCode || "";
     this.log(`user_code=${this.userCode}`);
   }
   async step3Email() {
-    if (this.cfg.manualMode) return;
+    if (this.cfg.manualMode)
+      return;
     if (this.cfg.useOutlook && this.cfg.outlookData) {
       this.log("[3] 使用 Outlook 邮箱");
       const accounts = parseOutlookLines(this.cfg.outlookData);
-      if (accounts.length === 0) throw new Error("无可用的 Outlook 账号");
+      if (accounts.length === 0)
+        throw new Error("无可用的 Outlook 账号");
       const acc = accounts.length === 1 ? accounts[0] : accounts[Math.floor(Math.random() * accounts.length)];
       this.email = acc.email;
       this.log(`email=${this.email}`);
@@ -12592,13 +12673,10 @@ class Registrar {
       if (!this.cfg.tempMailPlusEmail || !this.cfg.tempMailPlusEpin || !this.cfg.tempMailPlusDomain) {
         throw new Error("TempMail.Plus 配置不完整");
       }
-      this.emailSvc = new TempMailPlusService(
-        this.cfg.tempMailPlusEmail,
-        this.cfg.tempMailPlusEpin,
-        this.cfg.tempMailPlusDomain
-      );
+      this.emailSvc = new TempMailPlusService(this.cfg.tempMailPlusEmail, this.cfg.tempMailPlusEpin, this.cfg.tempMailPlusDomain);
       this.email = await this.emailSvc.create();
-      if (!this.email) throw new Error("生成邮箱地址失败");
+      if (!this.email)
+        throw new Error("生成邮箱地址失败");
       this.log(`email=${this.email}`);
       return;
     }
@@ -12614,15 +12692,18 @@ class Registrar {
       };
       this.emailSvc = new DuckDuckGoEmailService(this.cfg.ddgAuthToken, gmailAccount);
       this.email = await this.emailSvc.create();
-      if (!this.email) throw new Error("DDG 地址生成失败");
+      if (!this.email)
+        throw new Error("DDG 地址生成失败");
       this.log(`email=${this.email}`);
       return;
     }
     this.log("[3] 创建临时邮箱");
-    if (!this.cfg.moEmailBaseURL) throw new Error("MoEmail 未配置");
+    if (!this.cfg.moEmailBaseURL)
+      throw new Error("MoEmail 未配置");
     this.emailSvc = new MoEmailService(this.cfg.moEmailBaseURL, this.cfg.moEmailAPIKey);
     this.email = await this.emailSvc.create();
-    if (!this.email) throw new Error("创建临时邮箱失败");
+    if (!this.email)
+      throw new Error("创建临时邮箱失败");
     this.log(`email=${this.email}`);
   }
   async step4Portal() {
@@ -12652,8 +12733,10 @@ class Registrar {
     if (rurl.includes("workflowStateHandle=")) {
       this.workflowHandle = splitAfter(rurl, "workflowStateHandle=");
     }
-    if (data.csrfToken) this.cookies.set("loginCsrfToken", data.csrfToken);
-    if (!this.workflowHandle) throw new Error("Portal 未返回 workflow handle");
+    if (data.csrfToken)
+      this.cookies.set("loginCsrfToken", data.csrfToken);
+    if (!this.workflowHandle)
+      throw new Error("Portal 未返回 workflow handle");
     const loginURL = `${this.cfg.signinBase}/platform/${this.cfg.directoryId}/login?workflowStateHandle=${this.workflowHandle}`;
     await this.fetchD2CToken(this.cfg.signinBase, loginURL);
   }
@@ -12667,19 +12750,16 @@ class Registrar {
     h["x-amzn-requestid"] = rid;
     h["x-amz-date"] = gmtDate();
     h["priority"] = "u=1, i";
-    let resp = await this.doPost(
-      api,
-      {
-        stepId: "",
-        workflowStateHandle: this.workflowHandle,
-        inputs: [{ input_type: "FingerPrintRequestInput", fingerPrint: fp }],
-        requestId: rid
-      },
-      h
-    );
+    let resp = await this.doPost(api, {
+      stepId: "",
+      workflowStateHandle: this.workflowHandle,
+      inputs: [{ input_type: "FingerPrintRequestInput", fingerPrint: fp }],
+      requestId: rid
+    }, h);
     saveCookies(this.cookies, resp.headers);
     let data = this.parseBody(resp.body);
-    if (data.workflowStateHandle) this.workflowHandle = data.workflowStateHandle;
+    if (data.workflowStateHandle)
+      this.workflowHandle = data.workflowStateHandle;
     if (data.stepId === "start") {
       fp = this.genFP("signin", "PageLoad", 0, "");
       rid = newUUID();
@@ -12687,19 +12767,16 @@ class Registrar {
       h["x-amzn-requestid"] = rid;
       h["x-amz-date"] = gmtDate();
       h["priority"] = "u=1, i";
-      resp = await this.doPost(
-        api,
-        {
-          stepId: "start",
-          workflowStateHandle: this.workflowHandle,
-          inputs: [{ input_type: "FingerPrintRequestInput", fingerPrint: fp }],
-          requestId: rid
-        },
-        h
-      );
+      resp = await this.doPost(api, {
+        stepId: "start",
+        workflowStateHandle: this.workflowHandle,
+        inputs: [{ input_type: "FingerPrintRequestInput", fingerPrint: fp }],
+        requestId: rid
+      }, h);
       saveCookies(this.cookies, resp.headers);
       data = this.parseBody(resp.body);
-      if (data.workflowStateHandle) this.workflowHandle = data.workflowStateHandle;
+      if (data.workflowStateHandle)
+        this.workflowHandle = data.workflowStateHandle;
     }
   }
   async step6SubmitEmail() {
@@ -12712,40 +12789,39 @@ class Registrar {
     h["x-amzn-requestid"] = rid;
     h["x-amz-date"] = gmtDate();
     h["priority"] = "u=1, i";
-    const resp = await this.doPost(
-      api,
-      {
-        stepId: "get-identity-user",
-        workflowStateHandle: this.workflowHandle,
-        actionId: "SUBMIT",
-        inputs: [
-          { input_type: "UserRequestInput", username: this.email },
-          { input_type: "ApplicationTypeRequestInput", applicationType: "SSO_INDIVIDUAL_ID" },
-          {
-            input_type: "UserEventRequestInput",
-            directoryId: this.cfg.directoryId,
-            userName: this.email,
-            userEvents: [
-              {
-                input_type: "UserEvent",
-                eventType: "PAGE_SUBMIT",
-                pageName: "IDENTIFICATION",
-                timeSpentOnPage: 5e3
-              }
-            ]
-          },
-          { input_type: "FingerPrintRequestInput", fingerPrint: fp }
-        ],
-        visitorId: this.vid,
-        requestId: rid
-      },
-      h
-    );
+    const resp = await this.doPost(api, {
+      stepId: "get-identity-user",
+      workflowStateHandle: this.workflowHandle,
+      actionId: "SUBMIT",
+      inputs: [
+        { input_type: "UserRequestInput", username: this.email },
+        { input_type: "ApplicationTypeRequestInput", applicationType: "SSO_INDIVIDUAL_ID" },
+        {
+          input_type: "UserEventRequestInput",
+          directoryId: this.cfg.directoryId,
+          userName: this.email,
+          userEvents: [
+            {
+              input_type: "UserEvent",
+              eventType: "PAGE_SUBMIT",
+              pageName: "IDENTIFICATION",
+              timeSpentOnPage: 5e3
+            }
+          ]
+        },
+        { input_type: "FingerPrintRequestInput", fingerPrint: fp }
+      ],
+      visitorId: this.vid,
+      requestId: rid
+    }, h);
     saveCookies(this.cookies, resp.headers);
     const data = this.parseBody(resp.body);
-    if (data.workflowStateHandle) this.workflowHandle = data.workflowStateHandle;
-    if (resp.status === 400) return "signup";
-    if (resp.status === 200) return "login";
+    if (data.workflowStateHandle)
+      this.workflowHandle = data.workflowStateHandle;
+    if (resp.status === 400)
+      return "signup";
+    if (resp.status === 200)
+      return "login";
     throw new Error(`提交邮箱失败: ${resp.status} - ${resp.body.slice(0, 200)}`);
   }
   async step7Signup() {
@@ -12758,21 +12834,17 @@ class Registrar {
     h["x-amzn-requestid"] = rid;
     h["x-amz-date"] = gmtDate();
     h["priority"] = "u=1, i";
-    const resp = await this.doPost(
-      api,
-      {
-        stepId: "get-identity-user",
-        workflowStateHandle: this.workflowHandle,
-        actionId: "SIGNUP",
-        inputs: [
-          { input_type: "UserRequestInput", username: this.email },
-          { input_type: "FingerPrintRequestInput", fingerPrint: fp }
-        ],
-        visitorId: this.vid,
-        requestId: rid
-      },
-      h
-    );
+    const resp = await this.doPost(api, {
+      stepId: "get-identity-user",
+      workflowStateHandle: this.workflowHandle,
+      actionId: "SIGNUP",
+      inputs: [
+        { input_type: "UserRequestInput", username: this.email },
+        { input_type: "FingerPrintRequestInput", fingerPrint: fp }
+      ],
+      visitorId: this.vid,
+      requestId: rid
+    }, h);
     saveCookies(this.cookies, resp.headers);
     const data = this.parseBody(resp.body);
     const redir = data.redirect;
@@ -12791,66 +12863,62 @@ class Registrar {
     h["x-amzn-requestid"] = rid;
     h["x-amz-date"] = gmtDate();
     h["priority"] = "u=1, i";
-    let resp = await this.doPost(
-      api,
-      {
-        stepId: "",
-        workflowStateHandle: this.workflowHandle,
-        inputs: [
-          { input_type: "UserRequestInput", username: this.email },
-          { input_type: "FingerPrintRequestInput", fingerPrint: fp }
-        ],
-        visitorId: this.vid,
-        requestId: rid
-      },
-      h
-    );
+    let resp = await this.doPost(api, {
+      stepId: "",
+      workflowStateHandle: this.workflowHandle,
+      inputs: [
+        { input_type: "UserRequestInput", username: this.email },
+        { input_type: "FingerPrintRequestInput", fingerPrint: fp }
+      ],
+      visitorId: this.vid,
+      requestId: rid
+    }, h);
     saveCookies(this.cookies, resp.headers);
     let data = this.parseBody(resp.body);
-    if (data.workflowStateHandle) this.workflowHandle = data.workflowStateHandle;
+    if (data.workflowStateHandle)
+      this.workflowHandle = data.workflowStateHandle;
     if (data.stepId !== "start")
-      throw new Error(
-        `Signup init 返回意外 stepId: ${data.stepId}, resp status: ${resp.status}, body: ${resp.body.substring(0, 200)}`
-      );
+      throw new Error(`Signup init 返回意外 stepId: ${data.stepId}, resp status: ${resp.status}, body: ${resp.body.substring(0, 200)}`);
     fp = this.genFP("signup", "PageLoad", 0, "");
     rid = newUUID();
     h = this.buildHeaders(ref, this.cfg.signinBase);
     h["x-amzn-requestid"] = rid;
     h["x-amz-date"] = gmtDate();
     h["priority"] = "u=1, i";
-    resp = await this.doPost(
-      api,
-      {
-        stepId: "start",
-        workflowStateHandle: this.workflowHandle,
-        inputs: [
-          { input_type: "UserRequestInput", username: this.email },
-          { input_type: "FingerPrintRequestInput", fingerPrint: fp }
-        ],
-        visitorId: this.vid,
-        requestId: rid
-      },
-      h
-    );
+    resp = await this.doPost(api, {
+      stepId: "start",
+      workflowStateHandle: this.workflowHandle,
+      inputs: [
+        { input_type: "UserRequestInput", username: this.email },
+        { input_type: "FingerPrintRequestInput", fingerPrint: fp }
+      ],
+      visitorId: this.vid,
+      requestId: rid
+    }, h);
     saveCookies(this.cookies, resp.headers);
     data = this.parseBody(resp.body);
-    if (data.workflowStateHandle) this.workflowHandle = data.workflowStateHandle;
+    if (data.workflowStateHandle)
+      this.workflowHandle = data.workflowStateHandle;
     const redir = data.redirect;
     const rurl = redir?.url;
     if (rurl?.includes("workflowID=")) {
       let wid = splitAfter(rurl, "workflowID=");
       const hashIdx = wid.indexOf("#");
-      if (hashIdx >= 0) wid = wid.slice(0, hashIdx);
+      if (hashIdx >= 0)
+        wid = wid.slice(0, hashIdx);
       this.workflowId = wid;
     }
-    if (!this.workflowId) throw new Error("Signup init 未返回 workflowID");
+    if (!this.workflowId)
+      throw new Error("Signup init 未返回 workflowID");
   }
   async step7_8ProfileInit() {
     this.log("[7.8] Profile 页面初始化");
     this.ubid = ubidGen();
     this.cookies.set("aws-user-profile-ubid", this.ubid);
-    if (!this.cookies.has("amznfbgid")) this.cookies.set("amznfbgid", amznFbgId());
-    if (!this.cookies.has("awsccc")) this.cookies.set("awsccc", awsccc());
+    if (!this.cookies.has("amznfbgid"))
+      this.cookies.set("amznfbgid", amznFbgId());
+    if (!this.cookies.has("awsccc"))
+      this.cookies.set("awsccc", awsccc());
     const url2 = `${this.cfg.profileBase}/?workflowID=${this.workflowId}`;
     const resp = await this.doGet(url2, {
       Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
@@ -12866,24 +12934,20 @@ class Registrar {
     this.log("[8] Profile 启动");
     const ref = `${this.cfg.profileBase}/?workflowID=${this.workflowId}`;
     const fp = this.genFP("profile", "PageLoad", 0, "");
-    const resp = await this.doPost(
-      this.cfg.profileBase + "/api/start",
-      {
-        workflowID: this.workflowId,
-        browserData: {
-          attributes: {
-            fingerprint: fp,
-            eventTimestamp: (/* @__PURE__ */ new Date()).toISOString().replace(/\.\d{3}Z$/, ".000Z"),
-            timeSpentOnPage: String(800 + Math.floor(Math.random() * 2200)),
-            eventType: "PageLoad",
-            ubid: this.ubid,
-            visitorId: this.vid
-          },
-          cookies: {}
-        }
-      },
-      this.buildProfileHeaders(ref)
-    );
+    const resp = await this.doPost(this.cfg.profileBase + "/api/start", {
+      workflowID: this.workflowId,
+      browserData: {
+        attributes: {
+          fingerprint: fp,
+          eventTimestamp: (/* @__PURE__ */ new Date()).toISOString().replace(/\.\d{3}Z$/, ".000Z"),
+          timeSpentOnPage: String(800 + Math.floor(Math.random() * 2200)),
+          eventType: "PageLoad",
+          ubid: this.ubid,
+          visitorId: this.vid
+        },
+        cookies: {}
+      }
+    }, this.buildProfileHeaders(ref));
     const data = this.parseBody(resp.body);
     this.workflowState = data.workflowState || "";
     if (!this.workflowState)
@@ -12905,13 +12969,7 @@ class Registrar {
     }
     const ref = `${this.cfg.profileBase}/?workflowID=${this.workflowId}`;
     const timeOnPage = 5e3 + Math.floor(Math.random() * 3001);
-    const fp = this.genFPWithTime(
-      "profile",
-      "PageSubmit",
-      timeOnPage,
-      this.email.length,
-      this.email
-    );
+    const fp = this.genFPWithTime("profile", "PageSubmit", timeOnPage, this.email.length, this.email);
     const tsp = String(timeOnPage);
     const payload = {
       workflowState: this.workflowState,
@@ -12929,58 +12987,47 @@ class Registrar {
         cookies: {}
       }
     };
-    const resp = await this.doPost(
-      this.cfg.profileBase + "/api/send-otp",
-      payload,
-      this.buildProfileHeaders(ref)
-    );
+    const resp = await this.doPost(this.cfg.profileBase + "/api/send-otp", payload, this.buildProfileHeaders(ref));
     if (resp.status !== 200)
       throw new Error(`send-otp 失败 (${resp.status}), body: ${resp.body.substring(0, 300)}`);
     this.log("验证码已发送");
   }
   async step10GetOTP() {
-    if (this.cfg.manualMode) throw new Error("手动模式需外部提供验证码");
+    if (this.cfg.manualMode)
+      throw new Error("手动模式需外部提供验证码");
     this.log("[10] 等待验证码");
     if (this.cfg.useOutlook && this.cfg.outlookData) {
       const accounts = parseOutlookLines(this.cfg.outlookData);
       const acc = accounts.find((a) => a.email === this.email);
-      if (!acc) throw new Error("未找到对应 Outlook 账号");
-      return await waitForOTP(
-        acc,
-        this.outlookMailCount,
-        120,
-        5,
-        () => this.abortController.signal.aborted
-      );
+      if (!acc)
+        throw new Error("未找到对应 Outlook 账号");
+      return await waitForOTP(acc, this.outlookMailCount, 120, 5, () => this.abortController.signal.aborted);
     }
-    if (!this.emailSvc) throw new Error("邮箱服务未初始化");
+    if (!this.emailSvc)
+      throw new Error("邮箱服务未初始化");
     return await this.emailSvc.waitForCode(120, 3, () => this.abortController.signal.aborted);
   }
   async step11CreateIdentity(otp) {
     this.log("[11] 创建身份");
     const ref = `${this.cfg.profileBase}/?workflowID=${this.workflowId}`;
     const fp = this.genFP("profile", "EmailVerification", 0, "");
-    const resp = await this.doPost(
-      this.cfg.profileBase + "/api/create-identity",
-      {
-        workflowState: this.workflowState,
-        userData: { email: this.email, fullName: this.cfg.fullName },
-        otpCode: otp,
-        browserData: {
-          attributes: {
-            fingerprint: fp,
-            eventTimestamp: (/* @__PURE__ */ new Date()).toISOString().replace(/\.\d{3}Z$/, ".000Z"),
-            timeSpentOnPage: String(3e4 + Math.floor(Math.random() * 3e4)),
-            pageName: "EMAIL_VERIFICATION",
-            eventType: "EmailVerification",
-            ubid: this.ubid,
-            visitorId: this.vid
-          },
-          cookies: {}
-        }
-      },
-      this.buildProfileHeaders(ref)
-    );
+    const resp = await this.doPost(this.cfg.profileBase + "/api/create-identity", {
+      workflowState: this.workflowState,
+      userData: { email: this.email, fullName: this.cfg.fullName },
+      otpCode: otp,
+      browserData: {
+        attributes: {
+          fingerprint: fp,
+          eventTimestamp: (/* @__PURE__ */ new Date()).toISOString().replace(/\.\d{3}Z$/, ".000Z"),
+          timeSpentOnPage: String(3e4 + Math.floor(Math.random() * 3e4)),
+          pageName: "EMAIL_VERIFICATION",
+          eventType: "EmailVerification",
+          ubid: this.ubid,
+          visitorId: this.vid
+        },
+        cookies: {}
+      }
+    }, this.buildProfileHeaders(ref));
     const data = this.parseBody(resp.body);
     this.regCode = data.registrationCode || "";
     this.signState = data.signInState || "";
@@ -12997,31 +13044,23 @@ class Registrar {
     h["x-amzn-requestid"] = rid;
     h["x-amz-date"] = gmtDate();
     h["priority"] = "u=1, i";
-    let resp = await this.doPost(
-      api,
-      {
-        stepId: "",
-        state: this.signState,
-        inputs: [
-          {
-            input_type: "UserRegistrationRequestInput",
-            registrationCode: this.regCode,
-            state: this.signState
-          },
-          { input_type: "FingerPrintRequestInput", fingerPrint: fp }
-        ],
-        requestId: rid
-      },
-      h
-    );
+    let resp = await this.doPost(api, {
+      stepId: "",
+      state: this.signState,
+      inputs: [
+        {
+          input_type: "UserRegistrationRequestInput",
+          registrationCode: this.regCode,
+          state: this.signState
+        },
+        { input_type: "FingerPrintRequestInput", fingerPrint: fp }
+      ],
+      requestId: rid
+    }, h);
     saveCookies(this.cookies, resp.headers);
     let data = this.parseBody(resp.body);
     this.workflowHandle = data.workflowStateHandle || "";
-    const encCtx = getNestedMap(
-      data,
-      "workflowResponseData",
-      "encryptionContextResponse"
-    );
+    const encCtx = getNestedMap(data, "workflowResponseData", "encryptionContextResponse");
     const pubKeyMap = encCtx ? getNestedStringMap(encCtx, "publicKey") : null;
     if (!pubKeyMap?.n)
       throw new Error(`未获取到加密公钥: ${this.formatErrorBody(resp.body, resp.status)}`);
@@ -13035,31 +13074,28 @@ class Registrar {
     h["x-amzn-requestid"] = rid;
     h["x-amz-date"] = gmtDate();
     h["priority"] = "u=1, i";
-    resp = await this.doPost(
-      api,
-      {
-        stepId: "get-new-password-for-password-creation",
-        workflowStateHandle: this.workflowHandle,
-        actionId: "SUBMIT",
-        inputs: [
-          {
-            input_type: "PasswordRequestInput",
-            password: encrypted,
-            successfullyEncrypted: "SUCCESSFUL"
-          },
-          { input_type: "UserRequestInput", username: this.email },
-          { input_type: "FingerPrintRequestInput", fingerPrint: fp }
-        ],
-        visitorId: this.vid,
-        requestId: rid
-      },
-      h
-    );
+    resp = await this.doPost(api, {
+      stepId: "get-new-password-for-password-creation",
+      workflowStateHandle: this.workflowHandle,
+      actionId: "SUBMIT",
+      inputs: [
+        {
+          input_type: "PasswordRequestInput",
+          password: encrypted,
+          successfullyEncrypted: "SUCCESSFUL"
+        },
+        { input_type: "UserRequestInput", username: this.email },
+        { input_type: "FingerPrintRequestInput", fingerPrint: fp }
+      ],
+      visitorId: this.vid,
+      requestId: rid
+    }, h);
     saveCookies(this.cookies, resp.headers);
     data = this.parseBody(resp.body);
     const redir = data.redirect;
     const rurl = redir?.url;
-    if (!rurl) throw new Error(`密码设置未返回 redirect: ${resp.body.slice(0, 200)}`);
+    if (!rurl)
+      throw new Error(`密码设置未返回 redirect: ${resp.body.slice(0, 200)}`);
     const wh = extractParam(rurl, "workflowStateHandle");
     const st = extractParam(rurl, "state");
     const rh = extractParam(rurl, "workflowResultHandle");
@@ -13075,28 +13111,22 @@ class Registrar {
     h["x-amzn-requestid"] = rid;
     h["x-amz-date"] = gmtDate();
     h["priority"] = "u=1, i";
-    const resp = await this.doPost(
-      api,
-      {
-        stepId: "",
-        workflowStateHandle: wh,
-        workflowResultHandle: rh,
-        state,
-        inputs: [
-          { input_type: "UserRequestInput", username: this.email },
-          { input_type: "FingerPrintRequestInput", fingerPrint: fp }
-        ],
-        visitorId: this.vid,
-        requestId: rid
-      },
-      h
-    );
+    const resp = await this.doPost(api, {
+      stepId: "",
+      workflowStateHandle: wh,
+      workflowResultHandle: rh,
+      state,
+      inputs: [
+        { input_type: "UserRequestInput", username: this.email },
+        { input_type: "FingerPrintRequestInput", fingerPrint: fp }
+      ],
+      visitorId: this.vid,
+      requestId: rid
+    }, h);
     saveCookies(this.cookies, resp.headers);
     const data = this.parseBody(resp.body);
     if (data.stepId !== "end-of-workflow-success")
-      throw new Error(
-        `完成工作流失败: ${data.stepId || "undefined"} ${this.formatErrorBody(resp.body, resp.status)}`
-      );
+      throw new Error(`完成工作流失败: ${data.stepId || "undefined"} ${this.formatErrorBody(resp.body, resp.status)}`);
     const redir = data.redirect;
     const rurl = redir?.url;
     if (rurl) {
@@ -13123,17 +13153,20 @@ class Registrar {
       "sec-fetch-site": "cross-site",
       priority: "u=1, i"
     };
-    if (this.cookies.has("awsccc")) h["Cookie"] = "awsccc=" + this.cookies.get("awsccc");
+    if (this.cookies.has("awsccc"))
+      h["Cookie"] = "awsccc=" + this.cookies.get("awsccc");
     const resp = await this.doGet(loginURL, h);
     saveCookies(this.cookies, resp.headers);
     const data = this.parseBody(resp.body);
-    if (data.csrfToken) this.cookies.set("loginCsrfToken", data.csrfToken);
+    if (data.csrfToken)
+      this.cookies.set("loginCsrfToken", data.csrfToken);
     const rurl = data.redirectUrl || "";
     let wh = "";
     if (rurl.includes("workflowStateHandle=")) {
       wh = splitAfter(rurl, "workflowStateHandle=");
     }
-    if (!wh) throw new Error("SSO 无法获取 workflowStateHandle");
+    if (!wh)
+      throw new Error("SSO 无法获取 workflowStateHandle");
     await this.completeSSOWorkflow(wh);
   }
   async completeSSOWorkflow(wh) {
@@ -13145,16 +13178,12 @@ class Registrar {
     h["x-amzn-requestid"] = rid;
     h["x-amz-date"] = gmtDate();
     h["priority"] = "u=1, i";
-    let resp = await this.doPost(
-      api,
-      {
-        stepId: "",
-        workflowStateHandle: wh,
-        inputs: [{ input_type: "FingerPrintRequestInput", fingerPrint: fp }],
-        requestId: rid
-      },
-      h
-    );
+    let resp = await this.doPost(api, {
+      stepId: "",
+      workflowStateHandle: wh,
+      inputs: [{ input_type: "FingerPrintRequestInput", fingerPrint: fp }],
+      requestId: rid
+    }, h);
     saveCookies(this.cookies, resp.headers);
     let data = this.parseBody(resp.body);
     let newWH = data.workflowStateHandle || wh;
@@ -13165,16 +13194,12 @@ class Registrar {
       h["x-amzn-requestid"] = rid;
       h["x-amz-date"] = gmtDate();
       h["priority"] = "u=1, i";
-      resp = await this.doPost(
-        api,
-        {
-          stepId: "start",
-          workflowStateHandle: newWH,
-          inputs: [{ input_type: "FingerPrintRequestInput", fingerPrint: fp }],
-          requestId: rid
-        },
-        h
-      );
+      resp = await this.doPost(api, {
+        stepId: "start",
+        workflowStateHandle: newWH,
+        inputs: [{ input_type: "FingerPrintRequestInput", fingerPrint: fp }],
+        requestId: rid
+      }, h);
       saveCookies(this.cookies, resp.headers);
       data = this.parseBody(resp.body);
     }
@@ -13188,14 +13213,17 @@ class Registrar {
       }
     }
     const params = new URLSearchParams();
-    if (this.ssoState) params.set("state", this.ssoState);
+    if (this.ssoState)
+      params.set("state", this.ssoState);
     params.set("workflowResultHandle", this.authCode);
-    if (this.wdcCSRFToken) params.set("wdc_csrf_token", this.wdcCSRFToken);
+    if (this.wdcCSRFToken)
+      params.set("wdc_csrf_token", this.wdcCSRFToken);
     const startURL = this.cfg.viewBase + "/start/?" + params.toString();
     const cookieParts = [];
     if (this.cookies.has("loginCsrfToken"))
       cookieParts.push("loginCsrfToken=" + this.cookies.get("loginCsrfToken"));
-    if (this.cookies.has("awsccc")) cookieParts.push("awsccc=" + this.cookies.get("awsccc"));
+    if (this.cookies.has("awsccc"))
+      cookieParts.push("awsccc=" + this.cookies.get("awsccc"));
     await this.doGet(startURL, {
       Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
       "User-Agent": DEFAULT_UA,
@@ -13208,7 +13236,8 @@ class Registrar {
   async step13SSOToken() {
     this.log("[13] 获取 SSO Token");
     const csrf = this.cookies.get("loginCsrfToken");
-    if (!csrf) throw new Error("缺少 loginCsrfToken");
+    if (!csrf)
+      throw new Error("缺少 loginCsrfToken");
     const h = {
       Accept: "application/json, text/plain, */*",
       "Content-Type": "application/x-www-form-urlencoded",
@@ -13249,37 +13278,27 @@ class Registrar {
       } catch {
       }
     }
-    if (!this.ssoToken) throw new Error("SSO Token 重试 5 次仍失败");
-    let resp = await this.doPost(
-      this.cfg.oidcBase + "/device_authorization/accept_user_code",
-      {
-        userCode: this.userCode,
-        userSessionId: this.ssoToken
-      },
-      { "Content-Type": "application/json" }
-    );
+    if (!this.ssoToken)
+      throw new Error("SSO Token 重试 5 次仍失败");
+    let resp = await this.doPost(this.cfg.oidcBase + "/device_authorization/accept_user_code", {
+      userCode: this.userCode,
+      userSessionId: this.ssoToken
+    }, { "Content-Type": "application/json" });
     const dcData = this.parseBody(resp.body);
     const dc = dcData.deviceContext;
-    await this.doPost(
-      this.cfg.oidcBase + "/device_authorization/associate_token",
-      {
-        deviceContext: dc,
-        userSessionId: this.ssoToken
-      },
-      { "Content-Type": "application/json" }
-    );
+    await this.doPost(this.cfg.oidcBase + "/device_authorization/associate_token", {
+      deviceContext: dc,
+      userSessionId: this.ssoToken
+    }, { "Content-Type": "application/json" });
     for (let i = 0; i < 30; i++) {
-      resp = await this.doPost(
-        this.cfg.oidcBase + "/token",
-        {
-          clientId: this.clientId,
-          clientSecret: this.clientSecret,
-          deviceCode: this.deviceCode,
-          grantType: "urn:ietf:params:oauth:grant-type:device_code"
-        },
-        { "Content-Type": "application/json" }
-      );
-      if (resp.status === 200) return this.parseBody(resp.body);
+      resp = await this.doPost(this.cfg.oidcBase + "/token", {
+        clientId: this.clientId,
+        clientSecret: this.clientSecret,
+        deviceCode: this.deviceCode,
+        grantType: "urn:ietf:params:oauth:grant-type:device_code"
+      }, { "Content-Type": "application/json" });
+      if (resp.status === 200)
+        return this.parseBody(resp.body);
       await sleep$2(2e3);
     }
     throw new Error("Token 轮询超时");
@@ -13435,12 +13454,14 @@ class Registrar {
   /** 手动模式 - 设置邮箱后继续注册流程到发送 OTP */
   async runManualPhase2(email, fullName) {
     this.email = email;
-    if (fullName) this.cfg.fullName = fullName;
+    if (fullName)
+      this.cfg.fullName = fullName;
     try {
       await this.step4Portal();
       await this.step5WorkflowInit();
       const status = await this.step6SubmitEmail();
-      if (status !== "signup") return { success: false, error: "该邮箱已注册过" };
+      if (status !== "signup")
+        return { success: false, error: "该邮箱已注册过" };
       await this.step7Signup();
       await this.step7_5SignupInit();
       await this.step7_8ProfileInit();
@@ -13483,10 +13504,14 @@ function genPassword() {
   const digits = "0123456789";
   const special = "!@#$%^&*";
   let pw = "";
-  for (let i = 0; i < 3; i++) pw += upper[Math.floor(Math.random() * upper.length)];
-  for (let i = 0; i < 6; i++) pw += lower[Math.floor(Math.random() * lower.length)];
-  for (let i = 0; i < 3; i++) pw += digits[Math.floor(Math.random() * digits.length)];
-  for (let i = 0; i < 2; i++) pw += special[Math.floor(Math.random() * special.length)];
+  for (let i = 0; i < 3; i++)
+    pw += upper[Math.floor(Math.random() * upper.length)];
+  for (let i = 0; i < 6; i++)
+    pw += lower[Math.floor(Math.random() * lower.length)];
+  for (let i = 0; i < 3; i++)
+    pw += digits[Math.floor(Math.random() * digits.length)];
+  for (let i = 0; i < 2; i++)
+    pw += special[Math.floor(Math.random() * special.length)];
   const arr = pw.split("");
   for (let i = arr.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
@@ -13561,12 +13586,12 @@ async function apiFetch(url2, options = {}) {
 async function waitForSelector(win, selector, timeoutMs = 3e4) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
-    if (!isWindowUsable(win)) return false;
+    if (!isWindowUsable(win))
+      return false;
     try {
-      const found = await win.webContents.executeJavaScript(
-        `!!document.querySelector(${JSON.stringify(selector)})`
-      );
-      if (found) return true;
+      const found = await win.webContents.executeJavaScript(`!!document.querySelector(${JSON.stringify(selector)})`);
+      if (found)
+        return true;
     } catch {
     }
     await sleep$1(500);
@@ -13574,11 +13599,14 @@ async function waitForSelector(win, selector, timeoutMs = 3e4) {
   return false;
 }
 async function waitForPageLoad(win, extraMs = 1500) {
-  if (!isWindowUsable(win)) return;
+  if (!isWindowUsable(win))
+    return;
   await new Promise((resolve) => {
-    if (!isWindowUsable(win)) return resolve();
+    if (!isWindowUsable(win))
+      return resolve();
     const done = () => {
-      if (win.webContents.isDestroyed()) return resolve();
+      if (win.webContents.isDestroyed())
+        return resolve();
       win.webContents.removeListener("did-finish-load", done);
       win.webContents.removeListener("did-fail-load", done);
       resolve();
@@ -13597,9 +13625,9 @@ async function waitForPageLoad(win, extraMs = 1500) {
   await randomDelay(extraMs, extraMs + 1e3);
 }
 async function getFatalRegistrationPageError(win) {
-  if (!isWindowUsable(win)) return null;
-  return win.webContents.executeJavaScript(
-    `
+  if (!isWindowUsable(win))
+    return null;
+  return win.webContents.executeJavaScript(`
       (function() {
         const text = (document.body && document.body.innerText) || '';
         const heading = Array.from(document.querySelectorAll('h1, h2, [role="heading"]'))
@@ -13617,25 +13645,24 @@ async function getFatalRegistrationPageError(win) {
         }
         return null;
       })()
-    `
-  ).catch(() => null);
+    `).catch(() => null);
 }
 async function failOnFatalRegistrationPageError(win, context) {
   const error = await getFatalRegistrationPageError(win);
-  if (!error) return;
+  if (!error)
+    return;
   throw new Error(`${error}${context ? ` (${context})` : ""}`);
 }
 async function clickWithCookieDismiss(win, selector, timeoutMs = 1e4) {
   const dismissCookies = async () => {
-    if (!isWindowUsable(win)) return;
-    await win.webContents.executeJavaScript(
-      `
+    if (!isWindowUsable(win))
+      return;
+    await win.webContents.executeJavaScript(`
       (function() {
         const btn = document.querySelector('button[data-id="awsccc-cb-btn-accept"]');
         if (btn) btn.click();
       })()
-    `
-    ).catch(() => {
+    `).catch(() => {
     });
     await sleep$1(300);
   };
@@ -13645,7 +13672,8 @@ async function clickWithCookieDismiss(win, selector, timeoutMs = 1e4) {
   while (Date.now() < deadline && isWindowUsable(win)) {
     await failOnFatalRegistrationPageError(win, `waiting for ${selector}`);
     found = await win.webContents.executeJavaScript(`!!document.querySelector(${JSON.stringify(selector)})`).catch(() => false);
-    if (found) break;
+    if (found)
+      break;
     await sleep$1(500);
   }
   if (!found) {
@@ -13654,23 +13682,25 @@ async function clickWithCookieDismiss(win, selector, timeoutMs = 1e4) {
   }
   for (let i = 0; i < 3; i++) {
     await failOnFatalRegistrationPageError(win, `before clicking ${selector}`);
-    if (!isWindowUsable(win)) return false;
+    if (!isWindowUsable(win))
+      return false;
     await dismissCookies();
-    await win.webContents.executeJavaScript(
-      `
+    await win.webContents.executeJavaScript(`
       (function() {
         const el = document.querySelector(${JSON.stringify(selector)});
         if (el) el.click();
       })()
-    `
-    ).catch(() => {
+    `).catch(() => {
     });
     await sleep$1(400);
-    if (!isWindowUsable(win)) return true;
+    if (!isWindowUsable(win))
+      return true;
     await failOnFatalRegistrationPageError(win, `after clicking ${selector}`);
     const stillThere = await win.webContents.executeJavaScript(`!!document.querySelector(${JSON.stringify(selector)})`).catch(() => false);
-    if (!stillThere) return true;
-    if (i < 2) await sleep$1(600);
+    if (!stillThere)
+      return true;
+    if (i < 2)
+      await sleep$1(600);
   }
   return true;
 }
@@ -13680,15 +13710,15 @@ async function typeInto(win, selector, text, timeoutMs = 15e3) {
   while (Date.now() < deadline && isWindowUsable(win)) {
     await failOnFatalRegistrationPageError(win, `waiting to type into ${selector}`);
     found = await win.webContents.executeJavaScript(`!!document.querySelector(${JSON.stringify(selector)})`).catch(() => false);
-    if (found) break;
+    if (found)
+      break;
     await sleep$1(500);
   }
   if (!found || !isWindowUsable(win)) {
     await failOnFatalRegistrationPageError(win, `input not found: ${selector}`);
     return false;
   }
-  await win.webContents.executeJavaScript(
-    `
+  await win.webContents.executeJavaScript(`
     (function() {
       const el = document.querySelector(${JSON.stringify(selector)});
       if (!el) return;
@@ -13699,13 +13729,12 @@ async function typeInto(win, selector, text, timeoutMs = 15e3) {
       el.dispatchEvent(new Event('input', { bubbles: true }));
       el.dispatchEvent(new Event('change', { bubbles: true }));
     })()
-  `
-  ).catch(() => {
+  `).catch(() => {
   });
   for (const char of text) {
-    if (!isWindowUsable(win)) return false;
-    await win.webContents.executeJavaScript(
-      `
+    if (!isWindowUsable(win))
+      return false;
+    await win.webContents.executeJavaScript(`
       (function() {
         const el = document.querySelector(${JSON.stringify(selector)});
         if (!el) return;
@@ -13714,16 +13743,13 @@ async function typeInto(win, selector, text, timeoutMs = 15e3) {
         else el.value += ${JSON.stringify(char)};
         el.dispatchEvent(new Event('input', { bubbles: true }));
       })()
-    `
-    ).catch(() => {
+    `).catch(() => {
     });
     await sleep$1(60 + Math.random() * 80);
   }
-  await win.webContents.executeJavaScript(
-    `
+  await win.webContents.executeJavaScript(`
     document.querySelector(${JSON.stringify(selector)})?.dispatchEvent(new Event('change', { bubbles: true }))
-  `
-  ).catch(() => {
+  `).catch(() => {
   });
   return true;
 }
@@ -13740,9 +13766,7 @@ class BrowserRegistrar {
     this.log = log || ((msg) => console.log(msg));
     this.sessionPartition = `persist:reg-${cfg.taskId || Date.now()}`;
     this.log(`[Browser] New registration session created: ${this.sessionPartition}`);
-    this.log(
-      `[Browser] Method: ${cfg.useDDG ? "DuckDuckGo/Gmail" : cfg.useTempMailPlus ? "TempMail.Plus" : cfg.providedEmailData ? "Provided Email" : "MoEmail"}`
-    );
+    this.log(`[Browser] Method: ${cfg.useDDG ? "DuckDuckGo/Gmail" : cfg.useTempMailPlus ? "TempMail.Plus" : cfg.providedEmailData ? "Provided Email" : "MoEmail"}`);
     this.log(`[Browser] Proxy configured: ${cfg.proxyUrl ? cfg.proxyUrl : "none"}`);
   }
   abort() {
@@ -13750,7 +13774,8 @@ class BrowserRegistrar {
     this.destroyWindow();
   }
   checkAborted() {
-    if (this.aborted) throw new Error("Registration cancelled");
+    if (this.aborted)
+      throw new Error("Registration cancelled");
   }
   destroyWindow() {
     if (this.win && !this.win.isDestroyed()) {
@@ -13770,9 +13795,7 @@ class BrowserRegistrar {
       await ses.clearCache();
       this.log("[Browser] Registration session storage/cache cleared");
     } catch (error) {
-      this.log(
-        `[Browser] Warning: failed to clear session storage/cache: ${error instanceof Error ? error.message : String(error)}`
-      );
+      this.log(`[Browser] Warning: failed to clear session storage/cache: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
   async createWindow() {
@@ -13805,9 +13828,7 @@ class BrowserRegistrar {
       this.log("[Browser] Registration webContents destroyed");
     });
     win.webContents.on("did-fail-load", (_event, errorCode, errorDescription, validatedURL) => {
-      this.log(
-        `[Browser] Load failed: ${errorCode} ${errorDescription} ${validatedURL.slice(0, 120)}`
-      );
+      this.log(`[Browser] Load failed: ${errorCode} ${errorDescription} ${validatedURL.slice(0, 120)}`);
     });
     this.win = win;
     this.log("[Browser] Registration window created successfully");
@@ -13824,7 +13845,8 @@ class BrowserRegistrar {
       };
       const svc = new DuckDuckGoEmailService(this.cfg.ddgAuthToken, gmailAccount);
       const addr = await svc.create();
-      if (!addr) throw new Error("DDG address creation failed");
+      if (!addr)
+        throw new Error("DDG address creation failed");
       this.emailSvc = svc;
       return addr;
     }
@@ -13832,27 +13854,22 @@ class BrowserRegistrar {
       if (!this.cfg.tempMailPlusEmail || !this.cfg.tempMailPlusEpin || !this.cfg.tempMailPlusDomain) {
         throw new Error("TempMailPlus config incomplete");
       }
-      const svc = new TempMailPlusService(
-        this.cfg.tempMailPlusEmail,
-        this.cfg.tempMailPlusEpin,
-        this.cfg.tempMailPlusDomain
-      );
+      const svc = new TempMailPlusService(this.cfg.tempMailPlusEmail, this.cfg.tempMailPlusEpin, this.cfg.tempMailPlusDomain);
       const addr = await svc.create();
-      if (!addr) throw new Error("TempMailPlus address creation failed");
+      if (!addr)
+        throw new Error("TempMailPlus address creation failed");
       this.emailSvc = svc;
       return addr;
     }
     if (this.cfg.providedEmailData) {
       const accounts = parseProvidedEmailLines(this.cfg.providedEmailData);
-      if (accounts.length === 0) throw new Error("No valid provided email accounts");
+      if (accounts.length === 0)
+        throw new Error("No valid provided email accounts");
       const account = accounts[0];
-      const svc = new ProvidedEmailService(
-        account,
-        this.cfg.providedEmailApiKey || "",
-        this.cfg.providedEmailApiBaseURL || "https://firstmail.ltd/api/v1"
-      );
+      const svc = new ProvidedEmailService(account, this.cfg.providedEmailApiKey || "", this.cfg.providedEmailApiBaseURL || "https://firstmail.ltd/api/v1");
       const addr = await svc.create();
-      if (!addr) throw new Error("Provided email address creation failed");
+      if (!addr)
+        throw new Error("Provided email address creation failed");
       this.emailSvc = svc;
       this.cfg.password = account.password;
       this.consumedProvidedEmailLine = `${account.email}:${account.password}`;
@@ -13861,7 +13878,8 @@ class BrowserRegistrar {
     if (this.cfg.moEmailBaseURL) {
       const svc = new MoEmailService(this.cfg.moEmailBaseURL, this.cfg.moEmailAPIKey || "");
       const addr = await svc.create();
-      if (!addr) throw new Error("MoEmail address creation failed");
+      if (!addr)
+        throw new Error("MoEmail address creation failed");
       this.emailSvc = svc;
       return addr;
     }
@@ -13892,9 +13910,7 @@ class BrowserRegistrar {
       })
     });
     if (resp.status !== 200) {
-      throw new Error(
-        `OIDC client registration failed (${resp.status}): ${resp.body.slice(0, 200)}`
-      );
+      throw new Error(`OIDC client registration failed (${resp.status}): ${resp.body.slice(0, 200)}`);
     }
     const data = JSON.parse(resp.body);
     if (!data.clientId || !data.clientSecret) {
@@ -13965,7 +13981,8 @@ class BrowserRegistrar {
         }
       };
       const onNav = (_, url2) => {
-        if (!url2.startsWith(redirectUri)) return;
+        if (!url2.startsWith(redirectUri))
+          return;
         try {
           const parsed = new URL(url2);
           const code = parsed.searchParams.get("code");
@@ -13975,17 +13992,14 @@ class BrowserRegistrar {
             resolve(code);
           } else if (parsed.searchParams.get("error")) {
             cleanup();
-            reject(
-              new Error(
-                `Auth error: ${parsed.searchParams.get("error_description") || parsed.searchParams.get("error")}`
-              )
-            );
+            reject(new Error(`Auth error: ${parsed.searchParams.get("error_description") || parsed.searchParams.get("error")}`));
           }
         } catch {
         }
       };
       const onFail = (_, _errorCode, _errorDesc, validatedURL) => {
-        if (!validatedURL.startsWith(redirectUri)) return;
+        if (!validatedURL.startsWith(redirectUri))
+          return;
         try {
           const parsed = new URL(validatedURL);
           const code = parsed.searchParams.get("code");
@@ -14007,16 +14021,15 @@ class BrowserRegistrar {
   async stepAcceptCookiesAndWaitForEmail(win) {
     this.log("[Browser] Waiting for page to load...");
     await waitForPageLoad(win, 0);
-    if (!isWindowUsable(win)) throw new Error("Registration browser window closed during page load");
+    if (!isWindowUsable(win))
+      throw new Error("Registration browser window closed during page load");
     this.log(`[Browser] Page: ${win.webContents.getURL()}`);
     const hasBanner = await win.webContents.executeJavaScript(`!!document.querySelector('button[data-id="awsccc-cb-btn-accept"]')`).catch(() => false);
     if (hasBanner) {
-      await win.webContents.executeJavaScript(
-        `
+      await win.webContents.executeJavaScript(`
         const btn = document.querySelector('button[data-id="awsccc-cb-btn-accept"]');
         if (btn) btn.click();
-      `
-      ).catch(() => {
+      `).catch(() => {
       });
       this.log("[Browser] Cookie banner accepted");
     }
@@ -14027,7 +14040,8 @@ class BrowserRegistrar {
     while (Date.now() < emailDeadline && isWindowUsable(win)) {
       await failOnFatalRegistrationPageError(win, "waiting for email input");
       emailAppeared = await win.webContents.executeJavaScript(`!!document.querySelector('input[placeholder*="@"]')`).catch(() => false);
-      if (emailAppeared) break;
+      if (emailAppeared)
+        break;
       await sleep$1(500);
     }
     if (!emailAppeared) {
@@ -14061,8 +14075,7 @@ class BrowserRegistrar {
       await failOnFatalRegistrationPageError(win, "waiting for signup page after email");
       await sleep$1(250);
     }
-    const createClicked = await win.webContents.executeJavaScript(
-      `
+    const createClicked = await win.webContents.executeJavaScript(`
       (function() {
         const els = Array.from(document.querySelectorAll('a, button'));
         const btn = els.find(el => {
@@ -14072,8 +14085,7 @@ class BrowserRegistrar {
         if (btn) { btn.click(); return true; }
         return false;
       })()
-    `
-    ).catch(() => false);
+    `).catch(() => false);
     if (createClicked) {
       this.log("[Browser] Clicked create account");
       await waitForPageLoad(win, 1500);
@@ -14085,20 +14097,19 @@ class BrowserRegistrar {
     while (Date.now() < nameDeadline && isWindowUsable(win)) {
       await failOnFatalRegistrationPageError(win, "waiting for name input");
       nameAppeared = await win.webContents.executeJavaScript(`!!document.querySelector('input[placeholder*=" "]')`).catch(() => false);
-      if (nameAppeared) break;
+      if (nameAppeared)
+        break;
       await sleep$1(500);
     }
     if (nameAppeared) {
-      const isNameField = await win.webContents.executeJavaScript(
-        `
+      const isNameField = await win.webContents.executeJavaScript(`
         (function() {
           const el = document.querySelector('input[placeholder*=" "]');
           if (!el) return false;
           const ph = el.placeholder || '';
           return !ph.includes('@') && !/\\d/.test(ph);
         })()
-      `
-      ).catch(() => false);
+      `).catch(() => false);
       if (isNameField) {
         await typeInto(win, 'input[placeholder*=" "]', fullName);
         this.log(`[Browser] Name filled: ${fullName}`);
@@ -14124,15 +14135,15 @@ class BrowserRegistrar {
     while (Date.now() < otpDeadline && isWindowUsable(win)) {
       await failOnFatalRegistrationPageError(win, "waiting for OTP input");
       otpAppeared = await win.webContents.executeJavaScript(`!!document.querySelector('input[placeholder*="digit"]')`).catch(() => false);
-      if (otpAppeared) break;
+      if (otpAppeared)
+        break;
       await sleep$1(500);
     }
     if (!otpAppeared) {
       await failOnFatalRegistrationPageError(win, "OTP input not found");
       throw new Error("OTP input not found after 30s");
     }
-    await win.webContents.executeJavaScript(
-      `
+    await win.webContents.executeJavaScript(`
       (function() {
         const el = document.querySelector('input[placeholder*="digit"]');
         if (!el) return;
@@ -14141,8 +14152,7 @@ class BrowserRegistrar {
         else el.value = '';
         el.dispatchEvent(new Event('input', { bubbles: true }));
       })()
-    `
-    ).catch(() => {
+    `).catch(() => {
     });
     this.log(`[Browser] Filling OTP: ${otp}`);
     await typeInto(win, 'input[placeholder*="digit"]', otp);
@@ -14159,7 +14169,8 @@ class BrowserRegistrar {
     while (Date.now() < pwdDeadline && isWindowUsable(win)) {
       await failOnFatalRegistrationPageError(win, "waiting for password input");
       hasPwd = await win.webContents.executeJavaScript(`!!document.querySelector('input[type="password"]')`).catch(() => false);
-      if (hasPwd) break;
+      if (hasPwd)
+        break;
       await sleep$1(500);
     }
     if (!hasPwd) {
@@ -14168,18 +14179,15 @@ class BrowserRegistrar {
     }
     await failOnFatalRegistrationPageError(win, "before password entry");
     this.log("[Browser] Filling password");
-    const pwdCount = await win.webContents.executeJavaScript(
-      `
+    const pwdCount = await win.webContents.executeJavaScript(`
       (function() {
         const inputs = Array.from(document.querySelectorAll('input[type="password"]'));
         return inputs.filter(el => !!el.offsetParent).length;
       })()
-    `
-    ).catch(() => 0);
+    `).catch(() => 0);
     this.log(`[Browser] Found ${pwdCount} password field(s)`);
     for (let i = 0; i < pwdCount; i++) {
-      const fillOk = await win.webContents.executeJavaScript(
-        `
+      const fillOk = await win.webContents.executeJavaScript(`
         (function() {
           const inputs = Array.from(document.querySelectorAll('input[type="password"]')).filter(el => !!el.offsetParent);
           if (${i} >= inputs.length) return false;
@@ -14194,10 +14202,10 @@ class BrowserRegistrar {
           el.blur();
           return true;
         })()
-      `
-      ).catch(() => false);
+      `).catch(() => false);
       if (!fillOk) {
-        if (i === 0) await typeInto(win, 'input[type="password"]', password);
+        if (i === 0)
+          await typeInto(win, 'input[type="password"]', password);
       }
       if (i < pwdCount - 1) {
         await randomDelay(300, 600);
@@ -14206,8 +14214,7 @@ class BrowserRegistrar {
     await randomDelay(800, 1500);
     const clicked = await this.clickPasswordContinue(win);
     if (!clicked) {
-      const pageInfo = await win.webContents.executeJavaScript(
-        `
+      const pageInfo = await win.webContents.executeJavaScript(`
         (function() {
           const url = window.location.href;
           const inputs = Array.from(document.querySelectorAll('input')).map(el => ({
@@ -14228,8 +14235,7 @@ class BrowserRegistrar {
           }));
           return { url: url.slice(0, 180), inputs, buttons: buttons.slice(0, 20), body: document.body.innerText.slice(0, 500) };
         })()
-      `
-      ).catch(() => ({ url: "unknown", buttons: [], inputs: [], body: "" }));
+      `).catch(() => ({ url: "unknown", buttons: [], inputs: [], body: "" }));
       this.log(`[Browser] Password continue not clicked; page state: ${JSON.stringify(pageInfo)}`);
       throw new Error("Password Continue button not found or disabled");
     }
@@ -14241,8 +14247,7 @@ class BrowserRegistrar {
     const deadline = Date.now() + 3e4;
     while (Date.now() < deadline && isWindowUsable(win)) {
       await failOnFatalRegistrationPageError(win, "waiting for password continue button");
-      const clicked = await win.webContents.executeJavaScript(
-        `
+      const clicked = await win.webContents.executeJavaScript(`
         (function() {
           const candidates = Array.from(document.querySelectorAll('button, input[type="submit"], a[role="button"]'));
           const visible = candidates.filter(el => !!el.offsetParent);
@@ -14262,8 +14267,7 @@ class BrowserRegistrar {
           btn.click();
           return true;
         })()
-      `
-      ).catch(() => false);
+      `).catch(() => false);
       if (clicked) {
         await sleep$1(400);
         await failOnFatalRegistrationPageError(win, "after password continue click");
@@ -14285,25 +14289,22 @@ class BrowserRegistrar {
       '[data-testid="submit-button"]'
     ];
     for (const selector of SELECTORS) {
-      const found = await win.webContents.executeJavaScript(
-        `
+      const found = await win.webContents.executeJavaScript(`
         (function() {
           const el = document.querySelector(${JSON.stringify(selector)});
           return el ? true : false;
         })()
-      `
-      ).catch(() => false);
-      if (!found) continue;
+      `).catch(() => false);
+      if (!found)
+        continue;
       this.log(`[Browser] Found button with selector: ${selector}`);
-      await win.webContents.executeJavaScript(
-        `
+      await win.webContents.executeJavaScript(`
         (function() {
           const el = document.querySelector(${JSON.stringify(selector)});
           if (el) el.click();
           return true;
         })()
-      `
-      ).catch(() => {
+      `).catch(() => {
       });
       this.log("[Browser] Clicked Allow access");
       return true;
@@ -14312,8 +14313,7 @@ class BrowserRegistrar {
   }
   /** Try to find any button with Allow-related text */
   async tryClickAllowByText(win) {
-    const found = await win.webContents.executeJavaScript(
-      `
+    const found = await win.webContents.executeJavaScript(`
       (function() {
         const buttons = Array.from(document.querySelectorAll('button, input[type="submit"], a[role="button"]'));
         const allowBtn = buttons.find(el => {
@@ -14323,8 +14323,7 @@ class BrowserRegistrar {
         if (allowBtn) { allowBtn.click(); return true; }
         return false;
       })()
-    `
-    ).catch(() => false);
+    `).catch(() => false);
     if (found) {
       this.log("[Browser] Clicked Allow access button by text match");
       return true;
@@ -14336,20 +14335,19 @@ class BrowserRegistrar {
     try {
       this.log("[Browser] [9] Confirm device and allow access");
       const currentUrl = win.webContents.getURL();
-      this.log(
-        `[Browser] Current URL before waiting: ${currentUrl ? currentUrl.slice(0, 100) : "unknown"}`
-      );
+      this.log(`[Browser] Current URL before waiting: ${currentUrl ? currentUrl.slice(0, 100) : "unknown"}`);
       let clicked = false;
       const deadline = Date.now() + 45e3;
       while (!clicked && Date.now() < deadline && isWindowUsable(win)) {
         clicked = await this.tryClickAllowAccess(win);
-        if (!clicked) clicked = await this.tryClickAllowByText(win);
-        if (!clicked) await sleep$1(1e3);
+        if (!clicked)
+          clicked = await this.tryClickAllowByText(win);
+        if (!clicked)
+          await sleep$1(1e3);
       }
       if (!clicked) {
         this.log("[Browser] Allow access button not found, dumping page state");
-        const pageInfo = await win.webContents.executeJavaScript(
-          `
+        const pageInfo = await win.webContents.executeJavaScript(`
           (function() {
             const url = window.location.href;
             const buttons = Array.from(document.querySelectorAll('button, input[type="submit"], a[role="button"]'))
@@ -14364,16 +14362,13 @@ class BrowserRegistrar {
               }));
             return { url: url.slice(0, 150), buttons: buttons.slice(0, 15) };
           })()
-        `
-        ).catch(() => ({ url: "unknown", buttons: [] }));
+        `).catch(() => ({ url: "unknown", buttons: [] }));
         this.log(`[Browser] Page state: ${JSON.stringify(pageInfo)}`);
         this.log("[Browser] Waiting 15s for auto-redirect...");
         await sleep$1(15e3);
       }
     } catch (err) {
-      this.log(
-        `[Browser] Error in stepConfirmDevice: ${err instanceof Error ? err.message : String(err)}`
-      );
+      this.log(`[Browser] Error in stepConfirmDevice: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
   // ============ Main flow ============
@@ -14390,9 +14385,7 @@ class BrowserRegistrar {
     }
     const fullName = this.cfg.fullName || randomFullName();
     const password = this.cfg.password || genPassword();
-    this.log(
-      `[Browser] Identity prepared: name=${fullName}, password=${this.cfg.password ? "provided" : "generated"}`
-    );
+    this.log(`[Browser] Identity prepared: name=${fullName}, password=${this.cfg.password ? "provided" : "generated"}`);
     console.log(`[BrowserRegistrar] Email: ${email}`);
     this.log(`[Browser] Email: ${email}`);
     const { verifier, challenge } = this.generatePKCE();
@@ -14410,9 +14403,7 @@ class BrowserRegistrar {
         const code = url2.searchParams.get("code");
         const returnedState = url2.searchParams.get("state");
         res.writeHead(200, { "Content-Type": "text/html" });
-        res.end(
-          "<html><body><h2>Authorization complete. This window will close automatically.</h2><script>window.close()<\/script></body></html>"
-        );
+        res.end("<html><body><h2>Authorization complete. This window will close automatically.</h2><script>window.close()<\/script></body></html>");
         if (code && returnedState === state) {
           resolveCode(code);
         } else {
@@ -14436,9 +14427,7 @@ class BrowserRegistrar {
     this.log("[Browser] [1] Registering OIDC client");
     const oidcClient = await this.registerOidcClient(redirectUri);
     const authURL = this.buildAuthURL(oidcClient.clientId, challenge, state, redirectUri);
-    this.log(
-      `[Browser] [1] Auth URL built (PKCE, client_id: ${oidcClient.clientId.slice(0, 8)}...)`
-    );
+    this.log(`[Browser] [1] Auth URL built (PKCE, client_id: ${oidcClient.clientId.slice(0, 8)}...)`);
     let win;
     try {
       win = await this.createWindow();
@@ -14472,21 +14461,15 @@ class BrowserRegistrar {
         await this.stepSignup(win, fullName);
         this.checkAborted();
         this.log("[Browser] [6] Waiting for OTP email");
-        if (!this.emailSvc) throw new Error("Email service not initialized");
+        if (!this.emailSvc)
+          throw new Error("Email service not initialized");
         let otpSuccess = false;
         for (let attempt = 1; attempt <= 3 && !otpSuccess; attempt++) {
           if (attempt > 1) {
             this.log(`[Browser] Waiting for resend button...`);
-            const resendEnabled = await waitForSelector(
-              win,
-              'button[data-testid="email-verification-resend-code-button"]:not([disabled])',
-              9e4
-            );
+            const resendEnabled = await waitForSelector(win, 'button[data-testid="email-verification-resend-code-button"]:not([disabled])', 9e4);
             if (resendEnabled) {
-              await clickWithCookieDismiss(
-                win,
-                'button[data-testid="email-verification-resend-code-button"]:not([disabled])'
-              );
+              await clickWithCookieDismiss(win, 'button[data-testid="email-verification-resend-code-button"]:not([disabled])');
               this.log("[Browser] Clicked resend code");
               await sleep$1(2e3);
             }
@@ -14498,18 +14481,17 @@ class BrowserRegistrar {
           await this.stepFillOTP(win, otp);
           this.checkAborted();
           await failOnFatalRegistrationPageError(win, `after OTP attempt ${attempt}`);
-          const hasError = await win.webContents.executeJavaScript(
-            `
+          const hasError = await win.webContents.executeJavaScript(`
             !!document.querySelector('[data-testid="email-verification-invalid-code-error"]')
-          `
-          ).catch(() => false);
+          `).catch(() => false);
           if (hasError) {
             this.log(`[Browser] OTP rejected (attempt ${attempt}), will retry`);
           } else {
             otpSuccess = true;
           }
         }
-        if (!otpSuccess) throw new Error("OTP verification failed after 3 attempts");
+        if (!otpSuccess)
+          throw new Error("OTP verification failed after 3 attempts");
         await this.stepFillPassword(win, password);
         this.checkAborted();
         await failOnFatalRegistrationPageError(win, "after password step");
@@ -14523,13 +14505,7 @@ class BrowserRegistrar {
       this.log(`[Browser] Got auth code: ${authCode.slice(0, 8)}...`);
       this.destroyWindow();
       this.log("[Browser] [11] Exchanging code for tokens");
-      const tokenData = await this.exchangeCodeForTokens(
-        oidcClient.clientId,
-        oidcClient.clientSecret,
-        authCode,
-        verifier,
-        redirectUri
-      );
+      const tokenData = await this.exchangeCodeForTokens(oidcClient.clientId, oidcClient.clientSecret, authCode, verifier, redirectUri);
       this.log(`[Browser] Done! Email: ${email}`);
       return {
         status: "success",
@@ -17609,9 +17585,41 @@ electron.app.whenReady().then(async () => {
       store.set("accountData", data);
       lastSavedData = data;
       await createBackup(data);
+      if (proxyServer && proxyServer.isRunning()) {
+        const proxyAccounts = getStoredAccountsForProxy(data);
+        const pool = proxyServer.getAccountPool();
+        pool.clear();
+        proxyAccounts.forEach((acc) => pool.addAccount(acc));
+        console.log(`[ProxyServer] Auto-synced ${proxyAccounts.length} accounts to pool after save`);
+      }
     } catch (error) {
       console.error("Failed to save accounts:", error);
       throw error;
+    }
+  });
+  electron.ipcMain.handle("sync-accounts-to-proxy", async () => {
+    try {
+      if (!proxyServer || !proxyServer.isRunning()) {
+        return { success: false, error: "Proxy server is not running" };
+      }
+      await initStore();
+      const accountData = store.get("accountData");
+      const proxyAccounts = getStoredAccountsForProxy(accountData);
+      const pool = proxyServer.getAccountPool();
+      pool.clear();
+      proxyAccounts.forEach((acc) => pool.addAccount(acc));
+      console.log(`[ProxyServer] Manual sync: ${proxyAccounts.length} accounts synced to pool`);
+      return {
+        success: true,
+        syncedAccounts: proxyAccounts.length,
+        availableAccounts: pool.availableCount
+      };
+    } catch (error) {
+      console.error("Failed to sync accounts to proxy:", error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : "Unknown error"
+      };
     }
   });
   electron.ipcMain.handle("refresh-account-token", async (_event, account) => {

@@ -25,7 +25,7 @@ async function proxyFetch(url: string, options?: RequestInit): Promise<Response>
   return await fetch(url, options)
 }
 
-// ============ 验证码提取 ============
+// ============ Verification code extraction ============
 
 const OTP_PATTERN = /\b(\d{6})\b/g
 
@@ -35,7 +35,7 @@ export function extractCode(body: string): string {
   return matches[matches.length - 1]
 }
 
-// ============ TempEmailService 接口 ============
+// ============ TempEmailService interface ============
 
 export interface TempEmailService {
   create(): Promise<string>
@@ -243,7 +243,7 @@ export class ProvidedEmailService implements TempEmailService {
     intervalSec: number,
     abortCheck?: () => boolean
   ): Promise<string> {
-    if (!this.address) throw new Error('邮箱地址为空')
+    if (!this.address) throw new Error('Email address is empty')
     if (this.apiKey) return this.waitForCodeViaFirstMailAPI(timeoutSec, intervalSec, abortCheck)
 
     const maxRetries = Math.floor(timeoutSec / intervalSec)
@@ -270,20 +270,20 @@ export class ProvidedEmailService implements TempEmailService {
           const body = await client.fetchBodyByUID(uid)
           const code = extractCode(body)
           if (code) {
-            console.log(`[ProvidedEmail] 验证码: ${code}`)
+            console.log(`[ProvidedEmail] Verification code: ${code}`)
             await client.markSeen(uid)
             return code
           }
         }
       } catch (err) {
         if (attempt % 5 === 0) {
-          console.log(`[ProvidedEmail] [${attempt}/${maxRetries}] 查询失败:`, err)
+          console.log(`[ProvidedEmail] [${attempt}/${maxRetries}] Query failed:`, err)
         }
       } finally {
         client?.close()
       }
     }
-    throw new Error(`等待验证码超时 (${timeoutSec}s)`)
+    throw new Error(`Verification code wait timed out (${timeoutSec}s)`)
   }
 
   private async waitForCodeViaFirstMailAPI(
@@ -321,17 +321,17 @@ export class ProvidedEmailService implements TempEmailService {
           const looksLikeAws = sender.includes('no-reply@signin.aws') || /aws|amazon/i.test(body)
 
           if (code && looksLikeAws) {
-            console.log(`[FirstMail] 验证码: ${code}`)
+            console.log(`[FirstMail] Verification code: ${code}`)
             checkedIds.add(id)
             return code
           }
           checkedIds.add(id)
         }
       } catch (err) {
-        if (attempt % 5 === 0) console.log(`[FirstMail] [${attempt}/${maxRetries}] 查询失败:`, err)
+        if (attempt % 5 === 0) console.log(`[FirstMail] [${attempt}/${maxRetries}] Query failed:`, err)
       }
     }
-    throw new Error(`等待验证码超时 (${timeoutSec}s)`)
+    throw new Error(`Verification code wait timed out (${timeoutSec}s)`)
   }
 
   private async fetchFirstMailMessages(): Promise<Array<Record<string, unknown>>> {
@@ -397,7 +397,7 @@ export class ProvidedEmailService implements TempEmailService {
   }
 }
 
-// ============ MoEmail 临时邮箱 ============
+// ============ MoEmail temporary email service ============
 
 export class MoEmailService implements TempEmailService {
   private baseURL: string
@@ -410,25 +410,25 @@ export class MoEmailService implements TempEmailService {
   }
 
   /**
-   * 归一化用户输入的 baseURL：
-   *   - 去除首尾空白与末尾斜杠
-   *   - 缺少 protocol 时补 `https://`
-   *   - 校验协议仅允许 http / https，否则抛清晰错误
-   * 用于规避 fetch 因协议不合法抛出
+   * Normalize user-input baseURL:
+   *   - Trim whitespace and trailing slashes
+   *   - Add `https://` if protocol is missing
+   *   - Validate protocol is http/https only, otherwise throw clear error
+   * Used to prevent fetch errors due to invalid protocol
    * "Invalid URL protocol: the URL must start with `http:` or `https:`."
    */
   private static normalizeBaseURL(raw: string): string {
     const trimmed = (raw || '').trim().replace(/\/+$/, '')
-    if (!trimmed) throw new Error('MoEmail BaseURL 未配置')
+    if (!trimmed) throw new Error('MoEmail BaseURL not configured')
     const withScheme = /^[a-z][a-z0-9+.-]*:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`
     let u: URL
     try {
       u = new URL(withScheme)
     } catch {
-      throw new Error(`MoEmail BaseURL 格式无效: ${raw}`)
+      throw new Error(`MoEmail BaseURL format invalid: ${raw}`)
     }
     if (u.protocol !== 'http:' && u.protocol !== 'https:') {
-      throw new Error(`MoEmail BaseURL 协议不支持 (仅支持 http/https): ${u.protocol}`)
+      throw new Error(`MoEmail BaseURL protocol not supported (only http/https): ${u.protocol}`)
     }
     return withScheme
   }
@@ -453,7 +453,7 @@ export class MoEmailService implements TempEmailService {
       ''
 
     if (!addr) {
-      console.log('[MoEmail] 创建邮箱失败:', JSON.stringify(data))
+      console.log('[MoEmail] Email creation failed:', JSON.stringify(data))
       return ''
     }
     this.address = addr
@@ -465,7 +465,7 @@ export class MoEmailService implements TempEmailService {
     intervalSec: number,
     abortCheck?: () => boolean
   ): Promise<string> {
-    if (!this.address) throw new Error('邮箱地址为空')
+    if (!this.address) throw new Error('Email address is empty')
 
     const maxRetries = Math.floor(timeoutSec / intervalSec)
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
@@ -476,11 +476,11 @@ export class MoEmailService implements TempEmailService {
         const code = await this.fetchCode()
         if (code) return code
       } catch (err) {
-        if (attempt % 5 === 0) console.log(`[MoEmail] [${attempt}/${maxRetries}] 查询失败:`, err)
+        if (attempt % 5 === 0) console.log(`[MoEmail] [${attempt}/${maxRetries}] Query failed:`, err)
       }
-      if (attempt % 5 === 0) console.log(`[MoEmail] [${attempt}/${maxRetries}] 暂无验证码...`)
+      if (attempt % 5 === 0) console.log(`[MoEmail] [${attempt}/${maxRetries}] No verification code yet...`)
     }
-    throw new Error(`等待验证码超时 (${timeoutSec}s)`)
+    throw new Error(`Verification code wait timed out (${timeoutSec}s)`)
   }
 
   getAddress(): string {
@@ -516,7 +516,7 @@ export class MoEmailService implements TempEmailService {
   }
 }
 
-// ============ TempMail.Plus + 自建域名 ============
+// ============ TempMail.Plus + custom domain ============
 
 const FIRST_NAMES = [
   'james',
@@ -647,7 +647,7 @@ function randomEmailPrefix(): string {
 export class TempMailPlusService implements TempEmailService {
   private static readonly BASE_URL = 'https://tempmail.plus/api'
 
-  private readonly tmEmail: string // tempmail.plus 用户名（不含 @mailto.plus）
+  private readonly tmEmail: string // tempmail.plus username (without @mailto.plus)
   private readonly epin: string
   private readonly domain: string
   private address = ''
@@ -673,7 +673,7 @@ export class TempMailPlusService implements TempEmailService {
   async create(): Promise<string> {
     const prefix = randomEmailPrefix()
     this.address = `${prefix}@${this.domain}`
-    console.log(`[TempMailPlus] 生成邮箱: ${this.address}`)
+    console.log(`[TempMailPlus] Generated email: ${this.address}`)
     return this.address
   }
 
@@ -686,7 +686,7 @@ export class TempMailPlusService implements TempEmailService {
     intervalSec: number,
     abortCheck?: () => boolean
   ): Promise<string> {
-    if (!this.address) throw new Error('邮箱地址为空')
+    if (!this.address) throw new Error('Email address is empty')
     const maxRetries = Math.floor(timeoutSec / intervalSec)
     const checkedIds = new Set<number>()
 
@@ -697,7 +697,7 @@ export class TempMailPlusService implements TempEmailService {
       try {
         const mails = await this.fetchMailList()
         if (attempt === 1 || attempt % 5 === 0) {
-          console.log(`[TempMailPlus] [${attempt}/${maxRetries}] 邮件数: ${mails.length}`)
+          console.log(`[TempMailPlus] [${attempt}/${maxRetries}] Mail count: ${mails.length}`)
         }
         for (const mail of mails) {
           const mailId = mail.mail_id as number
@@ -707,29 +707,29 @@ export class TempMailPlusService implements TempEmailService {
           const detail = await this.fetchMailDetail(mailId)
           if (!detail) continue
 
-          // 验证收件人匹配
+          // Verify recipient matches
           const toField = String(detail.to || '').toLowerCase()
           if (!toField.includes(this.address.toLowerCase())) {
-            console.log(`[TempMailPlus] 收件人不匹配: ${toField} (期望包含: ${this.address})`)
+            console.log(`[TempMailPlus] Recipient mismatch: ${toField} (expected: ${this.address})`)
             continue
           }
 
-          // 提取验证码
+          // Extract verification code
           const code = this.extractOTP(detail)
           if (code) {
-            console.log(`[TempMailPlus] 验证码: ${code}`)
+            console.log(`[TempMailPlus] Verification code: ${code}`)
             await this.deleteMail(mailId)
             return code
           } else {
-            console.log(`[TempMailPlus] 邮件 ${mailId} 未提取到验证码`)
+            console.log(`[TempMailPlus] Mail ${mailId} no code extracted`)
           }
         }
       } catch (err) {
-        console.log(`[TempMailPlus] [${attempt}/${maxRetries}] 查询失败:`, err)
+        console.log(`[TempMailPlus] [${attempt}/${maxRetries}] Query failed:`, err)
       }
-      if (attempt % 5 === 0) console.log(`[TempMailPlus] [${attempt}/${maxRetries}] 暂无验证码...`)
+      if (attempt % 5 === 0) console.log(`[TempMailPlus] [${attempt}/${maxRetries}] No verification code yet...`)
     }
-    throw new Error(`等待验证码超时 (${timeoutSec}s)`)
+    throw new Error(`Verification code wait timed out (${timeoutSec}s)`)
   }
 
   private get fullEmail(): string {
@@ -766,22 +766,22 @@ export class TempMailPlusService implements TempEmailService {
     const body = `email=${encodeURIComponent(this.fullEmail)}&epin=${encodeURIComponent(this.epin)}`
     try {
       await proxyFetch(url, { method: 'DELETE', headers, body, signal: AbortSignal.timeout(10000) })
-      console.log(`[TempMailPlus] 已删除邮件: ${mailId}`)
+      console.log(`[TempMailPlus] Deleted mail: ${mailId}`)
     } catch (err) {
-      console.log(`[TempMailPlus] 删除邮件失败:`, err)
+      console.log(`[TempMailPlus] Delete mail failed:`, err)
     }
   }
 
   private extractOTP(detail: Record<string, unknown>): string {
-    // 从主题提取
+    // Extract from subject
     const subject = String(detail.subject || '')
     const subjectMatch = subject.match(/(\d{6})/)
     if (subjectMatch) return subjectMatch[1]
-    // 从正文提取
+    // Extract from text body
     const text = String(detail.text || '')
     const code = extractCode(text)
     if (code) return code
-    // 从 HTML 提取
+    // Extract from HTML
     const html = String(detail.html || '')
     return extractCode(html)
   }
@@ -801,12 +801,35 @@ export function parseOutlookLines(data: string): OutlookAccount[] {
   data = data.trim()
   if (!data) return accounts
 
+  // Try to parse as JSON array first
+  try {
+    const parsed = JSON.parse(data)
+    if (Array.isArray(parsed)) {
+      for (const item of parsed) {
+        if (item.email && item.client_id && (item.refresh_token || item.graph_refresh_token)) {
+          accounts.push({
+            email: item.email,
+            password: item.password || '',
+            clientId: item.client_id,
+            refreshToken: item.refresh_token || item.graph_refresh_token
+          })
+        }
+      }
+      return accounts
+    }
+  } catch {
+    // Not JSON, try legacy format
+  }
+
+  // Legacy format: email----password----clientId----refreshToken
   const lines = data.split('\n')
   const parseEntry = (entry: string): void => {
     entry = entry.trim()
     if (!entry) return
     const parts = entry.split('----')
-    if (parts.length === 4) {
+    // Support both 4-part (email----password----clientId----token)
+    // and 5-part (email----password----clientId----token----proxy) formats
+    if (parts.length === 4 || parts.length === 5) {
       accounts.push({
         email: parts[0].trim(),
         password: parts[1].trim(),
@@ -839,9 +862,9 @@ export async function refreshOutlookToken(acc: OutlookAccount): Promise<string> 
   })
   const data = (await resp.json()) as Record<string, unknown>
   if (resp.status !== 200)
-    throw new Error(`刷新失败 ${resp.status}: ${JSON.stringify(data).slice(0, 300)}`)
+    throw new Error(`Refresh failed ${resp.status}: ${JSON.stringify(data).slice(0, 300)}`)
   const token = data.access_token as string
-  if (!token) throw new Error('响应中无 access_token')
+  if (!token) throw new Error('No access_token in response')
   return token
 }
 
@@ -862,7 +885,7 @@ class IMAPClient {
       })
       const timer = setTimeout(() => {
         socket.destroy()
-        reject(new Error('连接超时'))
+        reject(new Error('Connection timeout'))
       }, 15000)
 
       socket.once('error', (err) => {
@@ -881,7 +904,7 @@ class IMAPClient {
 
   private readLine(): Promise<string> {
     return new Promise((resolve, reject) => {
-      if (!this.socket) return reject(new Error('未连接'))
+      if (!this.socket) return reject(new Error('Not connected'))
 
       const check = (): void => {
         const idx = this.buffer.indexOf('\r\n')
@@ -910,7 +933,7 @@ class IMAPClient {
   }
 
   private async sendCommand(cmd: string): Promise<string> {
-    if (!this.socket) throw new Error('未连接')
+    if (!this.socket) throw new Error('Not connected')
     this.tag++
     const tagStr = `A${String(this.tag).padStart(3, '0')}`
     this.socket.write(`${tagStr} ${cmd}\r\n`)
@@ -930,8 +953,8 @@ class IMAPClient {
     const xoauth2 = buildXOAuth2(email, accessToken)
     const tag = await this.sendCommand(`AUTHENTICATE XOAUTH2 ${xoauth2}`)
     const { result } = await this.readUntilTag(tag)
-    if (!result.includes('OK')) throw new Error(`认证失败: ${result}`)
-    console.log('[IMAP] 认证成功')
+    if (!result.includes('OK')) throw new Error(`Authentication failed: ${result}`)
+    console.log('[IMAP] Authentication successful')
     await sleep(800)
   }
 
@@ -947,18 +970,18 @@ class IMAPClient {
         return 0
       }
       if (retry < 2) {
-        console.log(`[IMAP] SELECT INBOX 失败 (${result}), 重试 ${retry + 1}/3...`)
+        console.log(`[IMAP] SELECT INBOX failed (${result}), retry ${retry + 1}/3...`)
         await sleep((1 + retry) * 1000)
       }
     }
-    throw new Error('SELECT INBOX 重试耗尽')
+    throw new Error('SELECT INBOX retries exhausted')
   }
 
   async fetchLatestBody(seq: number): Promise<string> {
-    if (seq <= 0) throw new Error('无效的邮件序号')
+    if (seq <= 0) throw new Error('Invalid mail sequence number')
     const tag = await this.sendCommand(`FETCH ${seq} (BODY.PEEK[TEXT])`)
     const { lines, result } = await this.readUntilTag(tag)
-    if (!result.includes('OK')) throw new Error(`FETCH TEXT 失败: ${result}`)
+    if (!result.includes('OK')) throw new Error(`FETCH TEXT failed: ${result}`)
 
     const rawLines: string[] = []
     let inBody = false
@@ -972,7 +995,7 @@ class IMAPClient {
     }
     const raw = rawLines.join('\n')
 
-    // 尝试解码 MIME base64
+    // Try to decode MIME base64
     const parts = raw.split('------=_Part_')
     let decoded = ''
     for (const part of parts) {
@@ -989,7 +1012,7 @@ class IMAPClient {
     }
     if (decoded) return decoded
 
-    // 整体 base64 解码
+    // Fallback: decode entire body as base64
     const cleaned = raw.replace(/[\s]/g, '')
     try {
       return Buffer.from(cleaned, 'base64').toString()
@@ -1030,7 +1053,7 @@ export async function waitForOTP(
   interval: number,
   abortCheck?: () => boolean
 ): Promise<string> {
-  console.log(`[Outlook IMAP] 等待验证码, 邮箱=${acc.email}, 发送前邮件数=${beforeCount}`)
+  console.log(`[Outlook IMAP] Waiting for verification code, email=${acc.email}, pre-send mail count=${beforeCount}`)
   let accessToken = await refreshOutlookToken(acc)
   const maxRetries = Math.floor(timeout / interval)
 
@@ -1045,7 +1068,7 @@ export async function waitForOTP(
 
       if (total <= beforeCount) {
         if (attempt % 5 === 0)
-          console.log(`[Outlook IMAP] [${attempt}/${maxRetries}] 暂无新邮件 (当前${total}封)...`)
+          console.log(`[Outlook IMAP] [${attempt}/${maxRetries}] No new mail yet (current ${total})...`)
         await sleep(interval * 1000)
         if (abortCheck?.()) throw new Error('Registration cancelled')
         continue
@@ -1056,7 +1079,7 @@ export async function waitForOTP(
           const body = await client.fetchLatestBody(i)
           const code = extractCode(body)
           if (code) {
-            console.log(`[Outlook IMAP] 获取到验证码: ${code}`)
+            console.log(`[Outlook IMAP] Got verification code: ${code}`)
             return code
           }
         } catch {
@@ -1065,9 +1088,9 @@ export async function waitForOTP(
       }
 
       if (attempt % 5 === 0)
-        console.log(`[Outlook IMAP] [${attempt}/${maxRetries}] 新邮件中未找到验证码...`)
+        console.log(`[Outlook IMAP] [${attempt}/${maxRetries}] No code found in new mail...`)
     } catch (err) {
-      if (attempt % 5 === 0) console.log(`[Outlook IMAP] 连接失败:`, err)
+      if (attempt % 5 === 0) console.log(`[Outlook IMAP] Connection failed:`, err)
       try {
         accessToken = await refreshOutlookToken(acc)
       } catch {
@@ -1078,7 +1101,7 @@ export async function waitForOTP(
     }
     await sleep(interval * 1000)
   }
-  throw new Error(`等待验证码超时 (${timeout}s)`)
+  throw new Error(`Verification code wait timed out (${timeout}s)`)
 }
 
 function sleep(ms: number): Promise<void> {
@@ -1226,15 +1249,14 @@ class GmailIMAPService {
           const containsAlias =
             !this.filterForAddress || body.toLowerCase().includes(this.filterForAddress)
           const code = extractCode(body)
-          if (code) {
-            if (!containsAlias) {
-              console.log(
-                `[Gmail IMAP] UID ${uid} has OTP but does not mention ${this.filterForAddress}; accepting because it is newer than baseline`
-              )
-            }
-            console.log(`[Gmail IMAP] Got OTP: ${code} from UID ${uid}`)
+          if (code && containsAlias) {
+            console.log(`[Gmail IMAP] Got OTP: ${code} from UID ${uid} for ${this.filterForAddress}`)
             await client.markSeen(uid)
             return code
+          } else if (code && !containsAlias) {
+            console.log(
+              `[Gmail IMAP] UID ${uid} has OTP ${code} but does not mention ${this.filterForAddress}; skipping (code belongs to another parallel registration)`
+            )
           } else {
             console.log(
               `[Gmail IMAP] UID ${uid} from AWS but no 6-digit code found, body length: ${body.length}, aliasMatch=${containsAlias}`

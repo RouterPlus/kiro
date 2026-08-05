@@ -128,6 +128,7 @@ interface ProxyConfig {
   enableMetrics?: boolean
   fallbackPort?: number
   enableAuditLog?: boolean
+  systemPromptOverwrite?: string
 }
 
 export function ProxyPanel() {
@@ -1105,6 +1106,50 @@ export function ProxyPanel() {
                 </p>
               </div>
             </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* System Prompt Overwrite Card */}
+      <Card>
+        <CardHeader className="pb-3">
+          <div className="flex items-center gap-2">
+            <FileText className="h-5 w-5 text-primary" />
+            <CardTitle className="text-lg text-primary">
+              {isEn ? 'System Prompt Overwrite' : '系统提示词覆盖'}
+            </CardTitle>
+          </div>
+          <CardDescription>
+            {isEn
+              ? 'Set custom instructions that define how the AI should behave and respond'
+              : '设置自定义指令来定义 AI 的行为和响应方式'}
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="space-y-2">
+            <Label htmlFor="systemPromptOverwrite">
+              {isEn ? 'System Prompt (replaces default behavior)' : '系统提示词（替换默认行为）'}
+            </Label>
+            <textarea
+              id="systemPromptOverwrite"
+              className="w-full min-h-[120px] px-3 py-2 rounded-md border border-input bg-background text-sm resize-y focus:outline-none focus:ring-2 focus:ring-primary"
+              placeholder={
+                isEn
+                  ? 'Example:\n\nYou are an expert Python developer with 10 years of experience.\nAlways write clean, well-documented code with type hints.\nProvide detailed explanations of your implementation choices.\nFollow PEP 8 style guide strictly.'
+                  : '示例：\n\n你是一位拥有 10 年经验的 Python 专家开发者。\n始终编写干净、有良好文档的代码，包含类型提示。\n详细解释你的实现选择。\n严格遵循 PEP 8 风格指南。'
+              }
+              value={config.systemPromptOverwrite || ''}
+              onChange={(e) => {
+                const value = e.target.value
+                setConfig((prev) => ({ ...prev, systemPromptOverwrite: value }))
+                window.api.proxyUpdateConfig({ systemPromptOverwrite: value })
+              }}
+            />
+            <p className="text-xs text-muted-foreground">
+              {isEn
+                ? 'Your custom prompt will be injected after the timestamp and before the original system prompt. This allows you to define the AI personality, expertise, and response style for all requests through this proxy.'
+                : '你的自定义提示词将在时间戳之后、原始系统提示词之前注入。这允许你为通过此代理的所有请求定义 AI 的个性、专业知识和响应风格。'}
+            </p>
           </div>
         </CardContent>
       </Card>

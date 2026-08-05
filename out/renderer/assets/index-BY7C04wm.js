@@ -1,3 +1,22 @@
+function _mergeNamespaces(n, m) {
+  for (var i = 0; i < m.length; i++) {
+    const e = m[i];
+    if (typeof e !== "string" && !Array.isArray(e)) {
+      for (const k in e) {
+        if (k !== "default" && !(k in n)) {
+          const d = Object.getOwnPropertyDescriptor(e, k);
+          if (d) {
+            Object.defineProperty(n, k, d.get ? d : {
+              enumerable: true,
+              get: () => e[k]
+            });
+          }
+        }
+      }
+    }
+  }
+  return Object.freeze(Object.defineProperty(n, Symbol.toStringTag, { value: "Module" }));
+}
 function getDefaultExportFromCjs(x) {
   return x && x.__esModule && Object.prototype.hasOwnProperty.call(x, "default") ? x["default"] : x;
 }
@@ -478,6 +497,10 @@ function requireReact() {
 }
 var reactExports = requireReact();
 const React = /* @__PURE__ */ getDefaultExportFromCjs(reactExports);
+const React$1 = /* @__PURE__ */ _mergeNamespaces({
+  __proto__: null,
+  default: React
+}, [reactExports]);
 var client = { exports: {} };
 var reactDomClient_production = {};
 var scheduler = { exports: {} };
@@ -12454,6 +12477,615 @@ function requireClient() {
 }
 var clientExports = requireClient();
 var reactDomExports = requireReactDom();
+function _extends$1() {
+  return _extends$1 = Object.assign ? Object.assign.bind() : function(n) {
+    for (var e = 1; e < arguments.length; e++) {
+      var t = arguments[e];
+      for (var r2 in t) ({}).hasOwnProperty.call(t, r2) && (n[r2] = t[r2]);
+    }
+    return n;
+  }, _extends$1.apply(null, arguments);
+}
+var Action;
+(function(Action2) {
+  Action2["Pop"] = "POP";
+  Action2["Push"] = "PUSH";
+  Action2["Replace"] = "REPLACE";
+})(Action || (Action = {}));
+const PopStateEventType = "popstate";
+function createBrowserHistory(options) {
+  if (options === void 0) {
+    options = {};
+  }
+  function createBrowserLocation(window2, globalHistory) {
+    let {
+      pathname,
+      search,
+      hash
+    } = window2.location;
+    return createLocation(
+      "",
+      {
+        pathname,
+        search,
+        hash
+      },
+      // state defaults to `null` because `window.history.state` does
+      globalHistory.state && globalHistory.state.usr || null,
+      globalHistory.state && globalHistory.state.key || "default"
+    );
+  }
+  function createBrowserHref(window2, to) {
+    return typeof to === "string" ? to : createPath(to);
+  }
+  return getUrlBasedHistory(createBrowserLocation, createBrowserHref, null, options);
+}
+function invariant$1(value, message) {
+  if (value === false || value === null || typeof value === "undefined") {
+    throw new Error(message);
+  }
+}
+function warning(cond, message) {
+  {
+    if (typeof console !== "undefined") console.warn(message);
+    try {
+      throw new Error(message);
+    } catch (e) {
+    }
+  }
+}
+function createKey() {
+  return Math.random().toString(36).substr(2, 8);
+}
+function getHistoryState(location, index) {
+  return {
+    usr: location.state,
+    key: location.key,
+    idx: index
+  };
+}
+function createLocation(current, to, state, key) {
+  if (state === void 0) {
+    state = null;
+  }
+  let location = _extends$1({
+    pathname: typeof current === "string" ? current : current.pathname,
+    search: "",
+    hash: ""
+  }, typeof to === "string" ? parsePath(to) : to, {
+    state,
+    // TODO: This could be cleaned up.  push/replace should probably just take
+    // full Locations now and avoid the need to run through this flow at all
+    // But that's a pretty big refactor to the current test suite so going to
+    // keep as is for the time being and just let any incoming keys take precedence
+    key: to && to.key || key || createKey()
+  });
+  return location;
+}
+function createPath(_ref) {
+  let {
+    pathname = "/",
+    search = "",
+    hash = ""
+  } = _ref;
+  if (search && search !== "?") pathname += search.charAt(0) === "?" ? search : "?" + search;
+  if (hash && hash !== "#") pathname += hash.charAt(0) === "#" ? hash : "#" + hash;
+  return pathname;
+}
+function parsePath(path) {
+  let parsedPath = {};
+  if (path) {
+    let hashIndex = path.indexOf("#");
+    if (hashIndex >= 0) {
+      parsedPath.hash = path.substr(hashIndex);
+      path = path.substr(0, hashIndex);
+    }
+    let searchIndex = path.indexOf("?");
+    if (searchIndex >= 0) {
+      parsedPath.search = path.substr(searchIndex);
+      path = path.substr(0, searchIndex);
+    }
+    if (path) {
+      parsedPath.pathname = path;
+    }
+  }
+  return parsedPath;
+}
+function getUrlBasedHistory(getLocation, createHref, validateLocation, options) {
+  if (options === void 0) {
+    options = {};
+  }
+  let {
+    window: window2 = document.defaultView,
+    v5Compat = false
+  } = options;
+  let globalHistory = window2.history;
+  let action = Action.Pop;
+  let listener = null;
+  let index = getIndex();
+  if (index == null) {
+    index = 0;
+    globalHistory.replaceState(_extends$1({}, globalHistory.state, {
+      idx: index
+    }), "");
+  }
+  function getIndex() {
+    let state = globalHistory.state || {
+      idx: null
+    };
+    return state.idx;
+  }
+  function handlePop() {
+    action = Action.Pop;
+    let nextIndex = getIndex();
+    let delta = nextIndex == null ? null : nextIndex - index;
+    index = nextIndex;
+    if (listener) {
+      listener({
+        action,
+        location: history.location,
+        delta
+      });
+    }
+  }
+  function push(to, state) {
+    action = Action.Push;
+    let location = createLocation(history.location, to, state);
+    index = getIndex() + 1;
+    let historyState = getHistoryState(location, index);
+    let url = history.createHref(location);
+    try {
+      globalHistory.pushState(historyState, "", url);
+    } catch (error) {
+      if (error instanceof DOMException && error.name === "DataCloneError") {
+        throw error;
+      }
+      window2.location.assign(url);
+    }
+    if (v5Compat && listener) {
+      listener({
+        action,
+        location: history.location,
+        delta: 1
+      });
+    }
+  }
+  function replace(to, state) {
+    action = Action.Replace;
+    let location = createLocation(history.location, to, state);
+    index = getIndex();
+    let historyState = getHistoryState(location, index);
+    let url = history.createHref(location);
+    globalHistory.replaceState(historyState, "", url);
+    if (v5Compat && listener) {
+      listener({
+        action,
+        location: history.location,
+        delta: 0
+      });
+    }
+  }
+  function createURL(to) {
+    let base = window2.location.origin !== "null" ? window2.location.origin : window2.location.href;
+    let href = typeof to === "string" ? to : createPath(to);
+    href = href.replace(/ $/, "%20");
+    invariant$1(base, "No window.location.(origin|href) available to create URL for href: " + href);
+    return new URL(href, base);
+  }
+  let history = {
+    get action() {
+      return action;
+    },
+    get location() {
+      return getLocation(window2, globalHistory);
+    },
+    listen(fn) {
+      if (listener) {
+        throw new Error("A history only accepts one active listener");
+      }
+      window2.addEventListener(PopStateEventType, handlePop);
+      listener = fn;
+      return () => {
+        window2.removeEventListener(PopStateEventType, handlePop);
+        listener = null;
+      };
+    },
+    createHref(to) {
+      return createHref(window2, to);
+    },
+    createURL,
+    encodeLocation(to) {
+      let url = createURL(to);
+      return {
+        pathname: url.pathname,
+        search: url.search,
+        hash: url.hash
+      };
+    },
+    push,
+    replace,
+    go(n) {
+      return globalHistory.go(n);
+    }
+  };
+  return history;
+}
+var ResultType;
+(function(ResultType2) {
+  ResultType2["data"] = "data";
+  ResultType2["deferred"] = "deferred";
+  ResultType2["redirect"] = "redirect";
+  ResultType2["error"] = "error";
+})(ResultType || (ResultType = {}));
+function stripBasename(pathname, basename) {
+  if (basename === "/") return pathname;
+  if (!pathname.toLowerCase().startsWith(basename.toLowerCase())) {
+    return null;
+  }
+  let startIndex = basename.endsWith("/") ? basename.length - 1 : basename.length;
+  let nextChar = pathname.charAt(startIndex);
+  if (nextChar && nextChar !== "/") {
+    return null;
+  }
+  return pathname.slice(startIndex) || "/";
+}
+const ABSOLUTE_URL_REGEX$1 = /^(?:[a-z][a-z0-9+.-]*:|\/\/)/i;
+const isAbsoluteUrl = (url) => ABSOLUTE_URL_REGEX$1.test(url);
+function resolvePath(to, fromPathname) {
+  if (fromPathname === void 0) {
+    fromPathname = "/";
+  }
+  let {
+    pathname: toPathname,
+    search = "",
+    hash = ""
+  } = typeof to === "string" ? parsePath(to) : to;
+  let pathname;
+  if (toPathname) {
+    if (isAbsoluteUrl(toPathname)) {
+      pathname = toPathname;
+    } else {
+      if (toPathname.includes("//")) {
+        let oldPathname = toPathname;
+        toPathname = removeDoubleSlashes(toPathname);
+        warning(false, "Pathnames cannot have embedded double slashes - normalizing " + (oldPathname + " -> " + toPathname));
+      }
+      if (toPathname.startsWith("/")) {
+        pathname = resolvePathname(toPathname.substring(1), "/");
+      } else {
+        pathname = resolvePathname(toPathname, fromPathname);
+      }
+    }
+  } else {
+    pathname = fromPathname;
+  }
+  return {
+    pathname,
+    search: normalizeSearch(search),
+    hash: normalizeHash(hash)
+  };
+}
+function resolvePathname(relativePath, fromPathname) {
+  let segments = fromPathname.replace(/\/+$/, "").split("/");
+  let relativeSegments = relativePath.split("/");
+  relativeSegments.forEach((segment) => {
+    if (segment === "..") {
+      if (segments.length > 1) segments.pop();
+    } else if (segment !== ".") {
+      segments.push(segment);
+    }
+  });
+  return segments.length > 1 ? segments.join("/") : "/";
+}
+function getInvalidPathError(char, field, dest, path) {
+  return "Cannot include a '" + char + "' character in a manually specified " + ("`to." + field + "` field [" + JSON.stringify(path) + "].  Please separate it out to the ") + ("`to." + dest + "` field. Alternatively you may provide the full path as ") + 'a string in <Link to="..."> and the router will parse it for you.';
+}
+function getPathContributingMatches(matches) {
+  return matches.filter((match, index) => index === 0 || match.route.path && match.route.path.length > 0);
+}
+function getResolveToMatches(matches, v7_relativeSplatPath) {
+  let pathMatches = getPathContributingMatches(matches);
+  if (v7_relativeSplatPath) {
+    return pathMatches.map((match, idx) => idx === pathMatches.length - 1 ? match.pathname : match.pathnameBase);
+  }
+  return pathMatches.map((match) => match.pathnameBase);
+}
+function resolveTo(toArg, routePathnames, locationPathname, isPathRelative) {
+  if (isPathRelative === void 0) {
+    isPathRelative = false;
+  }
+  let to;
+  if (typeof toArg === "string") {
+    to = parsePath(toArg);
+  } else {
+    to = _extends$1({}, toArg);
+    invariant$1(!to.pathname || !to.pathname.includes("?"), getInvalidPathError("?", "pathname", "search", to));
+    invariant$1(!to.pathname || !to.pathname.includes("#"), getInvalidPathError("#", "pathname", "hash", to));
+    invariant$1(!to.search || !to.search.includes("#"), getInvalidPathError("#", "search", "hash", to));
+  }
+  let isEmptyPath = toArg === "" || to.pathname === "";
+  let toPathname = isEmptyPath ? "/" : to.pathname;
+  let from;
+  if (toPathname == null) {
+    from = locationPathname;
+  } else {
+    let routePathnameIndex = routePathnames.length - 1;
+    if (!isPathRelative && toPathname.startsWith("..")) {
+      let toSegments = toPathname.split("/");
+      while (toSegments[0] === "..") {
+        toSegments.shift();
+        routePathnameIndex -= 1;
+      }
+      to.pathname = toSegments.join("/");
+    }
+    from = routePathnameIndex >= 0 ? routePathnames[routePathnameIndex] : "/";
+  }
+  let path = resolvePath(to, from);
+  let hasExplicitTrailingSlash = toPathname && toPathname !== "/" && toPathname.endsWith("/");
+  let hasCurrentTrailingSlash = (isEmptyPath || toPathname === ".") && locationPathname.endsWith("/");
+  if (!path.pathname.endsWith("/") && (hasExplicitTrailingSlash || hasCurrentTrailingSlash)) {
+    path.pathname += "/";
+  }
+  return path;
+}
+const removeDoubleSlashes = (path) => path.replace(/\/\/+/g, "/");
+const joinPaths = (paths) => removeDoubleSlashes(paths.join("/"));
+const normalizeSearch = (search) => !search || search === "?" ? "" : search.startsWith("?") ? search : "?" + search;
+const normalizeHash = (hash) => !hash || hash === "#" ? "" : hash.startsWith("#") ? hash : "#" + hash;
+const validMutationMethodsArr = ["post", "put", "patch", "delete"];
+new Set(validMutationMethodsArr);
+const validRequestMethodsArr = ["get", ...validMutationMethodsArr];
+new Set(validRequestMethodsArr);
+function _extends() {
+  return _extends = Object.assign ? Object.assign.bind() : function(n) {
+    for (var e = 1; e < arguments.length; e++) {
+      var t = arguments[e];
+      for (var r2 in t) ({}).hasOwnProperty.call(t, r2) && (n[r2] = t[r2]);
+    }
+    return n;
+  }, _extends.apply(null, arguments);
+}
+const DataRouterContext = /* @__PURE__ */ reactExports.createContext(null);
+const NavigationContext = /* @__PURE__ */ reactExports.createContext(null);
+const LocationContext = /* @__PURE__ */ reactExports.createContext(null);
+const RouteContext = /* @__PURE__ */ reactExports.createContext({
+  outlet: null,
+  matches: [],
+  isDataRoute: false
+});
+function useInRouterContext() {
+  return reactExports.useContext(LocationContext) != null;
+}
+function useLocation() {
+  !useInRouterContext() ? invariant$1(false) : void 0;
+  return reactExports.useContext(LocationContext).location;
+}
+function useIsomorphicLayoutEffect$2(cb) {
+  let isStatic = reactExports.useContext(NavigationContext).static;
+  if (!isStatic) {
+    reactExports.useLayoutEffect(cb);
+  }
+}
+function useNavigate() {
+  let {
+    isDataRoute
+  } = reactExports.useContext(RouteContext);
+  return isDataRoute ? useNavigateStable() : useNavigateUnstable();
+}
+function useNavigateUnstable() {
+  !useInRouterContext() ? invariant$1(false) : void 0;
+  let dataRouterContext = reactExports.useContext(DataRouterContext);
+  let {
+    basename,
+    future,
+    navigator: navigator2
+  } = reactExports.useContext(NavigationContext);
+  let {
+    matches
+  } = reactExports.useContext(RouteContext);
+  let {
+    pathname: locationPathname
+  } = useLocation();
+  let routePathnamesJson = JSON.stringify(getResolveToMatches(matches, future.v7_relativeSplatPath));
+  let activeRef = reactExports.useRef(false);
+  useIsomorphicLayoutEffect$2(() => {
+    activeRef.current = true;
+  });
+  let navigate = reactExports.useCallback(function(to, options) {
+    if (options === void 0) {
+      options = {};
+    }
+    if (!activeRef.current) return;
+    if (typeof to === "number") {
+      navigator2.go(to);
+      return;
+    }
+    let path = resolveTo(to, JSON.parse(routePathnamesJson), locationPathname, options.relative === "path");
+    if (dataRouterContext == null && basename !== "/") {
+      path.pathname = path.pathname === "/" ? basename : joinPaths([basename, path.pathname]);
+    }
+    (!!options.replace ? navigator2.replace : navigator2.push)(path, options.state, options);
+  }, [basename, navigator2, routePathnamesJson, locationPathname, dataRouterContext]);
+  return navigate;
+}
+var DataRouterHook$1 = /* @__PURE__ */ (function(DataRouterHook2) {
+  DataRouterHook2["UseBlocker"] = "useBlocker";
+  DataRouterHook2["UseRevalidator"] = "useRevalidator";
+  DataRouterHook2["UseNavigateStable"] = "useNavigate";
+  return DataRouterHook2;
+})(DataRouterHook$1 || {});
+var DataRouterStateHook$1 = /* @__PURE__ */ (function(DataRouterStateHook2) {
+  DataRouterStateHook2["UseBlocker"] = "useBlocker";
+  DataRouterStateHook2["UseLoaderData"] = "useLoaderData";
+  DataRouterStateHook2["UseActionData"] = "useActionData";
+  DataRouterStateHook2["UseRouteError"] = "useRouteError";
+  DataRouterStateHook2["UseNavigation"] = "useNavigation";
+  DataRouterStateHook2["UseRouteLoaderData"] = "useRouteLoaderData";
+  DataRouterStateHook2["UseMatches"] = "useMatches";
+  DataRouterStateHook2["UseRevalidator"] = "useRevalidator";
+  DataRouterStateHook2["UseNavigateStable"] = "useNavigate";
+  DataRouterStateHook2["UseRouteId"] = "useRouteId";
+  return DataRouterStateHook2;
+})(DataRouterStateHook$1 || {});
+function useDataRouterContext(hookName) {
+  let ctx = reactExports.useContext(DataRouterContext);
+  !ctx ? invariant$1(false) : void 0;
+  return ctx;
+}
+function useRouteContext(hookName) {
+  let route = reactExports.useContext(RouteContext);
+  !route ? invariant$1(false) : void 0;
+  return route;
+}
+function useCurrentRouteId(hookName) {
+  let route = useRouteContext();
+  let thisRoute = route.matches[route.matches.length - 1];
+  !thisRoute.route.id ? invariant$1(false) : void 0;
+  return thisRoute.route.id;
+}
+function useNavigateStable() {
+  let {
+    router
+  } = useDataRouterContext(DataRouterHook$1.UseNavigateStable);
+  let id2 = useCurrentRouteId(DataRouterStateHook$1.UseNavigateStable);
+  let activeRef = reactExports.useRef(false);
+  useIsomorphicLayoutEffect$2(() => {
+    activeRef.current = true;
+  });
+  let navigate = reactExports.useCallback(function(to, options) {
+    if (options === void 0) {
+      options = {};
+    }
+    if (!activeRef.current) return;
+    if (typeof to === "number") {
+      router.navigate(to);
+    } else {
+      router.navigate(to, _extends({
+        fromRouteId: id2
+      }, options));
+    }
+  }, [router, id2]);
+  return navigate;
+}
+function logV6DeprecationWarnings(renderFuture, routerFuture) {
+  if ((renderFuture == null ? void 0 : renderFuture.v7_startTransition) === void 0) ;
+  if ((renderFuture == null ? void 0 : renderFuture.v7_relativeSplatPath) === void 0 && true) ;
+}
+function Router(_ref5) {
+  let {
+    basename: basenameProp = "/",
+    children = null,
+    location: locationProp,
+    navigationType = Action.Pop,
+    navigator: navigator2,
+    static: staticProp = false,
+    future
+  } = _ref5;
+  !!useInRouterContext() ? invariant$1(false) : void 0;
+  let basename = basenameProp.replace(/^\/*/, "/");
+  let navigationContext = reactExports.useMemo(() => ({
+    basename,
+    navigator: navigator2,
+    static: staticProp,
+    future: _extends({
+      v7_relativeSplatPath: false
+    }, future)
+  }), [basename, future, navigator2, staticProp]);
+  if (typeof locationProp === "string") {
+    locationProp = parsePath(locationProp);
+  }
+  let {
+    pathname = "/",
+    search = "",
+    hash = "",
+    state = null,
+    key = "default"
+  } = locationProp;
+  let locationContext = reactExports.useMemo(() => {
+    let trailingPathname = stripBasename(pathname, basename);
+    if (trailingPathname == null) {
+      return null;
+    }
+    return {
+      location: {
+        pathname: trailingPathname,
+        search,
+        hash,
+        state,
+        key
+      },
+      navigationType
+    };
+  }, [basename, pathname, search, hash, state, key, navigationType]);
+  if (locationContext == null) {
+    return null;
+  }
+  return /* @__PURE__ */ reactExports.createElement(NavigationContext.Provider, {
+    value: navigationContext
+  }, /* @__PURE__ */ reactExports.createElement(LocationContext.Provider, {
+    children,
+    value: locationContext
+  }));
+}
+new Promise(() => {
+});
+const REACT_ROUTER_VERSION = "6";
+try {
+  window.__reactRouterVersion = REACT_ROUTER_VERSION;
+} catch (e) {
+}
+const START_TRANSITION = "startTransition";
+const startTransitionImpl = React$1[START_TRANSITION];
+function BrowserRouter(_ref4) {
+  let {
+    basename,
+    children,
+    future,
+    window: window2
+  } = _ref4;
+  let historyRef = reactExports.useRef();
+  if (historyRef.current == null) {
+    historyRef.current = createBrowserHistory({
+      window: window2,
+      v5Compat: true
+    });
+  }
+  let history = historyRef.current;
+  let [state, setStateImpl] = reactExports.useState({
+    action: history.action,
+    location: history.location
+  });
+  let {
+    v7_startTransition
+  } = future || {};
+  let setState = reactExports.useCallback((newState) => {
+    v7_startTransition && startTransitionImpl ? startTransitionImpl(() => setStateImpl(newState)) : setStateImpl(newState);
+  }, [setStateImpl, v7_startTransition]);
+  reactExports.useLayoutEffect(() => history.listen(setState), [history, setState]);
+  reactExports.useEffect(() => logV6DeprecationWarnings(future), [future]);
+  return /* @__PURE__ */ reactExports.createElement(Router, {
+    basename,
+    children,
+    location: state.location,
+    navigationType: state.action,
+    navigator: history,
+    future
+  });
+}
+var DataRouterHook;
+(function(DataRouterHook2) {
+  DataRouterHook2["UseScrollRestoration"] = "useScrollRestoration";
+  DataRouterHook2["UseSubmit"] = "useSubmit";
+  DataRouterHook2["UseSubmitFetcher"] = "useSubmitFetcher";
+  DataRouterHook2["UseFetcher"] = "useFetcher";
+  DataRouterHook2["useViewTransitionState"] = "useViewTransitionState";
+})(DataRouterHook || (DataRouterHook = {}));
+var DataRouterStateHook;
+(function(DataRouterStateHook2) {
+  DataRouterStateHook2["UseFetcher"] = "useFetcher";
+  DataRouterStateHook2["UseFetchers"] = "useFetchers";
+  DataRouterStateHook2["UseScrollRestoration"] = "useScrollRestoration";
+})(DataRouterStateHook || (DataRouterStateHook = {}));
 function r(e) {
   var t, f, n = "";
   if ("string" == typeof e || "number" == typeof e) n += e;
@@ -20070,8 +20702,10 @@ const en = {
     moApiKey: "API Key",
     optional: "optional",
     outlookAccounts: "Outlook Accounts",
-    outlookFormat: "email----pass----clientId----token",
-    outlookPlaceholder: "user@outlook.com----password----clientId----refreshToken",
+    outlookFormat: "JSON format (email, password, refresh_token/graph_refresh_token, client_id)",
+    outlookPlaceholder: '[{"email":"user@outlook.com","password":"pass","refresh_token":"token","client_id":"id"}]',
+    outlookProxy: "Outlook Proxy",
+    outlookProxyPlaceholder: "http://proxy:port (optional)",
     tempmail: "Custom Domain",
     tempMailDomain: "Custom Domain",
     tempMailEmail: "TempMail.Plus Username",
@@ -20546,8 +21180,10 @@ const zh = {
     moApiKey: "API 密钥",
     optional: "可选",
     outlookAccounts: "Outlook 账号",
-    outlookFormat: "邮箱----密码----clientId----refreshToken",
-    outlookPlaceholder: "user@outlook.com----password----clientId----refreshToken",
+    outlookFormat: "JSON 格式 (email, password, refresh_token/graph_refresh_token, client_id)",
+    outlookPlaceholder: '[{"email":"user@outlook.com","password":"pass","refresh_token":"token","client_id":"id"}]',
+    outlookProxy: "Outlook 代理",
+    outlookProxyPlaceholder: "http://proxy:port (可选)",
     tempmail: "自建邮箱",
     tempMailDomain: "自建域名",
     tempMailEmail: "TempMail.Plus 用户名",
@@ -43679,6 +44315,33 @@ function ProxyPanel() {
         ] })
       ] })
     ] }),
+    /* @__PURE__ */ jsxRuntimeExports.jsxs(Card, { children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsxs(CardHeader, { className: "pb-3", children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex items-center gap-2", children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx(FileText, { className: "h-5 w-5 text-primary" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx(CardTitle, { className: "text-lg text-primary", children: isEn ? "System Prompt Overwrite" : "系统提示词覆盖" })
+        ] }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx(CardDescription, { children: isEn ? "Set custom instructions that define how the AI should behave and respond" : "设置自定义指令来定义 AI 的行为和响应方式" })
+      ] }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx(CardContent, { className: "space-y-3", children: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "space-y-2", children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx(Label, { htmlFor: "systemPromptOverwrite", children: isEn ? "System Prompt (replaces default behavior)" : "系统提示词（替换默认行为）" }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx(
+          "textarea",
+          {
+            id: "systemPromptOverwrite",
+            className: "w-full min-h-[120px] px-3 py-2 rounded-md border border-input bg-background text-sm resize-y focus:outline-none focus:ring-2 focus:ring-primary",
+            placeholder: isEn ? "Example:\n\nYou are an expert Python developer with 10 years of experience.\nAlways write clean, well-documented code with type hints.\nProvide detailed explanations of your implementation choices.\nFollow PEP 8 style guide strictly." : "示例：\n\n你是一位拥有 10 年经验的 Python 专家开发者。\n始终编写干净、有良好文档的代码，包含类型提示。\n详细解释你的实现选择。\n严格遵循 PEP 8 风格指南。",
+            value: config.systemPromptOverwrite || "",
+            onChange: (e) => {
+              const value = e.target.value;
+              setConfig((prev) => ({ ...prev, systemPromptOverwrite: value }));
+              window.api.proxyUpdateConfig({ systemPromptOverwrite: value });
+            }
+          }
+        ),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "text-xs text-muted-foreground", children: isEn ? "Your custom prompt will be injected after the timestamp and before the original system prompt. This allows you to define the AI personality, expertise, and response style for all requests through this proxy." : "你的自定义提示词将在时间戳之后、原始系统提示词之前注入。这允许你为通过此代理的所有请求定义 AI 的个性、专业知识和响应风格。" })
+      ] }) })
+    ] }),
     /* @__PURE__ */ jsxRuntimeExports.jsx(
       ProxySecurityPanel,
       {
@@ -48272,7 +48935,7 @@ function RegisterPage() {
     setLogs([]);
     setResult(null);
     setImported(false);
-    const modeLabel = mode === "moemail" ? "MoEmail" : mode === "tempmail" ? "TempMail.Plus" : mode === "ddg" ? "DDG + Gmail" : mode === "browser-ddg" ? "Browser (DDG)" : mode === "browser-tempmail" ? "Browser (TempMail)" : mode === "browser-provided-email" ? "Browser (Email Provider)" : "Outlook";
+    const modeLabel = mode === "moemail" ? "MoEmail" : mode === "browser-provided-email" ? "Browser (Email Provider)" : "Outlook";
     addLog(t("register.logAutoStart").replace("{mode}", modeLabel));
     if (isBrowserMode) {
       let config2;
@@ -48311,16 +48974,6 @@ function RegisterPage() {
     } else if (mode === "outlook") {
       config.useOutlook = true;
       config.outlookData = outlookData;
-    } else if (mode === "tempmail") {
-      config.useTempMailPlus = true;
-      config.tempMailPlusEmail = tempMailEmail;
-      config.tempMailPlusEpin = tempMailEpin;
-      config.tempMailPlusDomain = tempMailDomain;
-    } else if (mode === "ddg") {
-      config.useDDG = true;
-      config.ddgAuthToken = ddgAuthToken;
-      config.ddgGmailEmail = ddgGmailEmail;
-      config.ddgGmailAppPassword = ddgGmailAppPassword;
     }
     const res = await window.api.registrationStartAuto(
       config
@@ -48480,17 +49133,9 @@ function RegisterPage() {
       proxyCdpAddress,
       proxyFormUrl
     });
-    if (mode === "browser-ddg" || mode === "browser-tempmail" || mode === "browser-provided-email") {
+    if (mode === "browser-provided-email") {
       window.api.registrationSaveAutoReplacementConfig({
         enabled: true,
-        useDDG: mode === "browser-ddg",
-        ddgAuthToken,
-        ddgGmailEmail,
-        ddgGmailAppPassword,
-        useTempMailPlus: mode === "browser-tempmail",
-        tempMailPlusEmail: tempMailEmail,
-        tempMailPlusEpin: tempMailEpin,
-        tempMailPlusDomain: tempMailDomain,
         providedEmailData: mode === "browser-provided-email" ? providedEmailData : void 0,
         providedEmailApiKey: mode === "browser-provided-email" ? providedEmailApiKey.trim() || void 0 : void 0,
         providedEmailApiBaseURL: mode === "browser-provided-email" ? providedEmailApiBaseURL.trim() || void 0 : void 0,
@@ -48698,16 +49343,6 @@ function RegisterPage() {
     if (mode === "moemail") {
       config.moEmailBaseURL = moBaseURL;
       config.moEmailAPIKey = moAPIKey;
-    } else if (mode === "tempmail") {
-      config.useTempMailPlus = true;
-      config.tempMailPlusEmail = tempMailEmail;
-      config.tempMailPlusEpin = tempMailEpin;
-      config.tempMailPlusDomain = tempMailDomain;
-    } else if (mode === "ddg") {
-      config.useDDG = true;
-      config.ddgAuthToken = ddgAuthToken;
-      config.ddgGmailEmail = ddgGmailEmail;
-      config.ddgGmailAppPassword = ddgGmailAppPassword;
     } else {
       config.useOutlook = true;
       config.outlookData = outlookData;
@@ -48717,27 +49352,11 @@ function RegisterPage() {
     mode,
     moBaseURL,
     moAPIKey,
-    outlookData,
-    tempMailEmail,
-    tempMailEpin,
-    tempMailDomain,
-    ddgAuthToken,
-    ddgGmailEmail,
-    ddgGmailAppPassword
+    outlookData
   ]);
   const buildBrowserConfig = reactExports.useCallback(() => {
     const config = {};
-    if (mode === "browser-ddg") {
-      config.useDDG = true;
-      config.ddgAuthToken = ddgAuthToken;
-      config.ddgGmailEmail = ddgGmailEmail;
-      config.ddgGmailAppPassword = ddgGmailAppPassword;
-    } else if (mode === "browser-tempmail") {
-      config.useTempMailPlus = true;
-      config.tempMailPlusEmail = tempMailEmail;
-      config.tempMailPlusEpin = tempMailEpin;
-      config.tempMailPlusDomain = tempMailDomain;
-    } else if (mode === "browser-provided-email") {
+    if (mode === "browser-provided-email") {
       config.providedEmailData = providedEmailData;
       config.providedEmailApiKey = providedEmailApiKey.trim() || void 0;
       config.providedEmailApiBaseURL = providedEmailApiBaseURL.trim() || void 0;
@@ -48746,12 +49365,6 @@ function RegisterPage() {
     return config;
   }, [
     mode,
-    ddgAuthToken,
-    ddgGmailEmail,
-    ddgGmailAppPassword,
-    tempMailEmail,
-    tempMailEpin,
-    tempMailDomain,
     providedEmailData,
     providedEmailApiKey,
     providedEmailApiBaseURL,
@@ -48790,7 +49403,7 @@ function RegisterPage() {
     },
     [buildBrowserConfig, generateProxyEachTime, generateSharedColabProxy]
   );
-  const isBrowserMode = mode === "browser-ddg" || mode === "browser-tempmail" || mode === "browser-provided-email";
+  const isBrowserMode = mode === "browser-provided-email";
   const runSingleWithRetry = reactExports.useCallback(
     async (itemId, taskId, maxRetries, config) => {
       for (let attempt = 0; attempt <= maxRetries; attempt++) {
@@ -49069,10 +49682,6 @@ function RegisterPage() {
           ["manual", t("register.manual")],
           ["moemail", "MoEmail"],
           ["outlook", "Outlook"],
-          ["tempmail", t("register.tempmail")],
-          ["ddg", "DDG + Gmail"],
-          ["browser-ddg", isEn ? "Browser (DDG)" : "浏览器 (DDG)"],
-          ["browser-tempmail", isEn ? "Browser (TempMail)" : "浏览器 (TempMail)"],
           [
             "browser-provided-email",
             isEn ? "Browser (Email Provider)" : "浏览器 (邮箱提供商)"
@@ -49157,108 +49766,38 @@ function RegisterPage() {
             )
           ] })
         ] }),
-        mode === "outlook" && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "p-4 bg-muted/30 rounded-lg border border-dashed space-y-1.5", children: [
-          /* @__PURE__ */ jsxRuntimeExports.jsxs(Label, { children: [
-            t("register.outlookAccounts"),
-            " (",
-            t("register.outlookFormat"),
-            ")"
-          ] }),
-          /* @__PURE__ */ jsxRuntimeExports.jsx(
-            "textarea",
-            {
-              value: outlookData,
-              onChange: (e) => setOutlookData(e.target.value),
-              placeholder: t("register.outlookPlaceholder"),
-              rows: 3,
-              disabled: isRunning || batchRunning,
-              className: "w-full px-3 py-2 bg-background border rounded-lg text-sm font-mono disabled:opacity-50 resize-none"
-            }
-          )
-        ] }),
-        (mode === "tempmail" || mode === "browser-tempmail") && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "p-4 bg-muted/30 rounded-lg border border-dashed space-y-4", children: [
-          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "grid grid-cols-1 md:grid-cols-3 gap-4", children: [
-            /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "space-y-1.5", children: [
-              /* @__PURE__ */ jsxRuntimeExports.jsx(Label, { children: t("register.tempMailDomain") }),
-              /* @__PURE__ */ jsxRuntimeExports.jsx(
-                Input,
-                {
-                  value: tempMailDomain,
-                  onChange: (e) => setTempMailDomain(e.target.value),
-                  placeholder: "example.com",
-                  disabled: isRunning || batchRunning
-                }
-              )
-            ] }),
-            /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "space-y-1.5", children: [
-              /* @__PURE__ */ jsxRuntimeExports.jsx(Label, { children: t("register.tempMailEmail") }),
-              /* @__PURE__ */ jsxRuntimeExports.jsx(
-                Input,
-                {
-                  value: tempMailEmail,
-                  onChange: (e) => setTempMailEmail(e.target.value),
-                  placeholder: t("register.tempMailEmailPlaceholder"),
-                  disabled: isRunning || batchRunning
-                }
-              )
-            ] }),
-            /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "space-y-1.5", children: [
-              /* @__PURE__ */ jsxRuntimeExports.jsx(Label, { children: t("register.tempMailEpin") }),
-              /* @__PURE__ */ jsxRuntimeExports.jsx(
-                Input,
-                {
-                  type: "password",
-                  value: tempMailEpin,
-                  onChange: (e) => setTempMailEpin(e.target.value),
-                  disabled: isRunning || batchRunning
-                }
-              )
-            ] })
-          ] }),
-          /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "text-xs text-muted-foreground", children: t("register.tempMailDesc") })
-        ] }),
-        (mode === "ddg" || mode === "browser-ddg") && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "p-4 bg-muted/30 rounded-lg border border-dashed space-y-4", children: [
-          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "grid grid-cols-1 md:grid-cols-2 gap-4", children: [
-            /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "space-y-1.5", children: [
-              /* @__PURE__ */ jsxRuntimeExports.jsx(Label, { children: isEn ? "DDG Auth Token" : "DDG 授权 Token" }),
-              /* @__PURE__ */ jsxRuntimeExports.jsx(
-                Input,
-                {
-                  type: "password",
-                  value: ddgAuthToken,
-                  onChange: (e) => setDdgAuthToken(e.target.value),
-                  placeholder: isEn ? "Bearer token from DDG account" : "DDG 账号 Bearer token",
-                  disabled: isRunning || batchRunning
-                }
-              )
-            ] }),
-            /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "space-y-1.5", children: [
-              /* @__PURE__ */ jsxRuntimeExports.jsx(Label, { children: isEn ? "Gmail Address" : "Gmail 地址" }),
-              /* @__PURE__ */ jsxRuntimeExports.jsx(
-                Input,
-                {
-                  value: ddgGmailEmail,
-                  onChange: (e) => setDdgGmailEmail(e.target.value),
-                  placeholder: "you@gmail.com",
-                  disabled: isRunning || batchRunning
-                }
-              )
-            ] })
-          ] }),
+        mode === "outlook" && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "p-4 bg-muted/30 rounded-lg border border-dashed space-y-3", children: [
           /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "space-y-1.5", children: [
-            /* @__PURE__ */ jsxRuntimeExports.jsx(Label, { children: isEn ? "Gmail App Password" : "Gmail 应用专用密码" }),
+            /* @__PURE__ */ jsxRuntimeExports.jsxs(Label, { children: [
+              t("register.outlookAccounts"),
+              " (",
+              t("register.outlookFormat"),
+              ")"
+            ] }),
             /* @__PURE__ */ jsxRuntimeExports.jsx(
-              Input,
+              "textarea",
               {
-                type: "password",
-                value: ddgGmailAppPassword,
-                onChange: (e) => setDdgGmailAppPassword(e.target.value),
-                placeholder: isEn ? "16-char app password (Settings → Security → App passwords)" : "16位应用专用密码（设置 → 安全 → 应用专用密码）",
-                disabled: isRunning || batchRunning
+                value: outlookData,
+                onChange: (e) => setOutlookData(e.target.value),
+                placeholder: t("register.outlookPlaceholder"),
+                rows: 3,
+                disabled: isRunning || batchRunning,
+                className: "w-full px-3 py-2 bg-background border rounded-lg text-sm font-mono disabled:opacity-50 resize-none"
               }
             )
           ] }),
-          /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "text-xs text-muted-foreground", children: isEn ? "DDG generates a @duck.com alias and forwards mail to your Gmail. Gmail IMAP polls for the OTP." : "DDG 生成 @duck.com 别名并转发邮件到 Gmail，通过 Gmail IMAP 轮询获取验证码。" })
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "space-y-1.5", children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx(Label, { children: t("register.outlookProxy") }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx(
+              Input,
+              {
+                value: proxyUrl,
+                onChange: (e) => setProxyUrl(e.target.value),
+                placeholder: t("register.outlookProxyPlaceholder"),
+                disabled: isRunning || batchRunning
+              }
+            )
+          ] })
         ] }),
         mode === "browser-provided-email" && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "p-4 bg-muted/30 rounded-lg border border-dashed space-y-2", children: [
           /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "grid grid-cols-1 md:grid-cols-2 gap-4", children: [
@@ -49443,7 +49982,7 @@ janniecavender1943@amaruanele.com:nrghrmzxY!3696`,
           Button,
           {
             onClick: mode === "manual" ? startManual : startAuto,
-            disabled: mode === "moemail" && !moBaseURL || mode === "outlook" && !outlookData.trim() || mode === "tempmail" && (!tempMailDomain.trim() || !tempMailEmail.trim() || !tempMailEpin.trim()) || mode === "ddg" && (!ddgAuthToken.trim() || !ddgGmailEmail.trim() || !ddgGmailAppPassword.trim()) || mode === "browser-ddg" && (!ddgAuthToken.trim() || !ddgGmailEmail.trim() || !ddgGmailAppPassword.trim()) || mode === "browser-tempmail" && (!tempMailDomain.trim() || !tempMailEmail.trim() || !tempMailEpin.trim()) || mode === "browser-provided-email" && (!providedEmailData.trim() || !providedEmailApiKey.trim()),
+            disabled: mode === "moemail" && !moBaseURL || mode === "outlook" && !outlookData.trim() || mode === "browser-provided-email" && (!providedEmailData.trim() || !providedEmailApiKey.trim()),
             children: [
               /* @__PURE__ */ jsxRuntimeExports.jsx(Play, { className: "h-4 w-4 mr-2" }),
               t("register.startRegistration")
@@ -49554,7 +50093,7 @@ janniecavender1943@amaruanele.com:nrghrmzxY!3696`,
             {
               variant: batchRunning ? "destructive" : "default",
               onClick: batchRunning ? stopBatch : startBatch,
-              disabled: !batchRunning && isRunning || mode === "moemail" && !moBaseURL || mode === "outlook" && !outlookData.trim() || mode === "tempmail" && (!tempMailDomain.trim() || !tempMailEmail.trim() || !tempMailEpin.trim()) || mode === "ddg" && (!ddgAuthToken.trim() || !ddgGmailEmail.trim() || !ddgGmailAppPassword.trim()) || mode === "browser-ddg" && (!ddgAuthToken.trim() || !ddgGmailEmail.trim() || !ddgGmailAppPassword.trim()) || mode === "browser-tempmail" && (!tempMailDomain.trim() || !tempMailEmail.trim() || !tempMailEpin.trim()) || mode === "browser-provided-email" && (!providedEmailData.trim() || !providedEmailApiKey.trim()),
+              disabled: !batchRunning && isRunning || mode === "moemail" && !moBaseURL || mode === "outlook" && !outlookData.trim() || mode === "browser-provided-email" && (!providedEmailData.trim() || !providedEmailApiKey.trim()),
               children: batchRunning ? /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
                 /* @__PURE__ */ jsxRuntimeExports.jsx(Square, { className: "h-4 w-4 mr-2" }),
                 t("register.batchStop")
@@ -50364,7 +50903,54 @@ function CloseConfirmDialog() {
 const TRAY_UPDATE_DEBOUNCE_MS = 400;
 const BACKGROUND_RESULT_FLUSH_MS = 120;
 function App() {
-  const [currentPage, setCurrentPage] = reactExports.useState("home");
+  const navigate = useNavigate();
+  const location = useLocation();
+  const pathToPage2 = {
+    "/": "home",
+    "/accounts": "accounts",
+    "/machine-id": "machineId",
+    "/kiro-settings": "kiroSettings",
+    "/proxy": "proxy",
+    "/k-proxy": "kproxy",
+    "/proxy-pool": "proxyPool",
+    "/register": "register",
+    "/subscription": "subscription",
+    "/webhooks": "webhooks",
+    "/diagnostics": "diagnostics",
+    "/config-sync": "configSync",
+    "/logs": "logs",
+    "/settings": "settings",
+    "/about": "about"
+  };
+  const pageToPath2 = {
+    "home": "/",
+    "accounts": "/accounts",
+    "machineId": "/machine-id",
+    "kiroSettings": "/kiro-settings",
+    "proxy": "/proxy",
+    "kproxy": "/k-proxy",
+    "proxyPool": "/proxy-pool",
+    "register": "/register",
+    "subscription": "/subscription",
+    "webhooks": "/webhooks",
+    "diagnostics": "/diagnostics",
+    "configSync": "/config-sync",
+    "logs": "/logs",
+    "settings": "/settings",
+    "about": "/about"
+  };
+  const [currentPage, setCurrentPage] = reactExports.useState(() => {
+    return pathToPage2[location.pathname] || "home";
+  });
+  reactExports.useEffect(() => {
+    const page = pathToPage2[location.pathname] || "home";
+    setCurrentPage(page);
+  }, [location.pathname]);
+  const handlePageChange = reactExports.useCallback((page) => {
+    const path = pageToPath2[page] || "/";
+    navigate(path);
+    setCurrentPage(page);
+  }, [navigate]);
   const [sidebarCollapsed, setSidebarCollapsed] = reactExports.useState(true);
   const {
     loadFromStorage,
@@ -50601,7 +51187,7 @@ function App() {
       Sidebar,
       {
         currentPage,
-        onPageChange: setCurrentPage,
+        onPageChange: handlePageChange,
         collapsed: sidebarCollapsed,
         onToggleCollapse: () => setSidebarCollapsed(!sidebarCollapsed)
       }
@@ -50611,6 +51197,68 @@ function App() {
     /* @__PURE__ */ jsxRuntimeExports.jsx(CloseConfirmDialog, {})
   ] });
 }
+const pathToPage = {
+  "/": "home",
+  "/accounts": "accounts",
+  "/machine-id": "machineId",
+  "/kiro-settings": "kiroSettings",
+  "/proxy": "proxy",
+  "/k-proxy": "kproxy",
+  "/proxy-pool": "proxyPool",
+  "/register": "register",
+  "/subscription": "subscription",
+  "/webhooks": "webhooks",
+  "/diagnostics": "diagnostics",
+  "/config-sync": "configSync",
+  "/logs": "logs",
+  "/settings": "settings",
+  "/about": "about"
+};
+const pageToPath = {
+  "home": "/",
+  "accounts": "/accounts",
+  "machineId": "/machine-id",
+  "kiroSettings": "/kiro-settings",
+  "proxy": "/proxy",
+  "kproxy": "/k-proxy",
+  "proxyPool": "/proxy-pool",
+  "register": "/register",
+  "subscription": "/subscription",
+  "webhooks": "/webhooks",
+  "diagnostics": "/diagnostics",
+  "configSync": "/config-sync",
+  "logs": "/logs",
+  "settings": "/settings",
+  "about": "/about"
+};
+function AppWithRouter() {
+  const navigate = useNavigate();
+  const location = useLocation();
+  reactExports.useEffect(() => {
+    const page = pathToPage[location.pathname] || "home";
+    console.log("[Router] Current page:", page, "path:", location.pathname);
+  }, [location.pathname]);
+  reactExports.useEffect(() => {
+    const originalPushState = window.history.pushState.bind(window.history);
+    window.history.pushState = function(state, title, url) {
+      originalPushState(state, title, url);
+      window.dispatchEvent(new PopStateEvent("popstate"));
+    };
+    return () => {
+      window.history.pushState = originalPushState;
+    };
+  }, []);
+  reactExports.useEffect(() => {
+    window.__navigate = (page) => {
+      const path = pageToPath[page] || "/";
+      navigate(path);
+    };
+  }, [navigate]);
+  return /* @__PURE__ */ jsxRuntimeExports.jsx(App, {});
+}
+function AppRouterWrapper() {
+  return /* @__PURE__ */ jsxRuntimeExports.jsx(BrowserRouter, { children: /* @__PURE__ */ jsxRuntimeExports.jsx(AppWithRouter, {}) });
+}
 clientExports.createRoot(document.getElementById("root")).render(
-  /* @__PURE__ */ jsxRuntimeExports.jsx(reactExports.StrictMode, { children: /* @__PURE__ */ jsxRuntimeExports.jsx(App, {}) })
+  /* @__PURE__ */ jsxRuntimeExports.jsx(reactExports.StrictMode, { children: /* @__PURE__ */ jsxRuntimeExports.jsx(AppRouterWrapper, {}) })
 );

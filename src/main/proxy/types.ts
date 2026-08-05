@@ -591,6 +591,8 @@ export interface ProxyConfig {
   enableAuditLog?: boolean
   apiKeyAccountBindings?: Record<string, string[]>
   apiKeyGroupBindings?: Record<string, string[]>
+  // System prompt overwrite - prepends custom text to all system prompts
+  systemPromptOverwrite?: string
 }
 
 export interface TlsConfig {
