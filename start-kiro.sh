@@ -6,7 +6,7 @@ mkdir -p "$LOG_DIR"
 
 export DISPLAY=:99
 
-echo "[$(date)] Starting Xpra session..." >> "$LOG_DIR/start.log"
+echo "[$(date)] Starting Kiro fullscreen via Xpra..." >> "$LOG_DIR/start.log"
 
 # Clean up stale files
 for f in /tmp/.X99-lock /tmp/.X11-unix/X99; do
@@ -24,11 +24,11 @@ pkill -f ":99" || true
 pkill -f "Kiro-account-manager.*electron" || true
 sleep 2
 
-# Start xpra with HTML5 websocket support
+# Start xpra with HTML5 websocket support and fullscreen child
 xpra \
     start :99 \
     --daemon=no \
-    --start-child=/root/kiro/start-electron.sh \
+    --start-child="bash -c 'cd /root/kiro && exec node_modules/.bin/electron --no-sandbox --kiosk .'" \
     --exit-with-children \
     --bind-ws=0.0.0.0:14500 \
     --html=on \

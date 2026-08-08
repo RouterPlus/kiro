@@ -2189,7 +2189,7 @@ function setLogStreamEvents(enabled) {
 let payloadSizeLimitKB = 1536;
 const UPSTREAM_SAFE_PAYLOAD_LIMIT_KB = 512;
 const EMERGENCY_PAYLOAD_LIMIT_KB = 320;
-const UPSTREAM_ENDPOINT_TIMEOUT_MS = 25e3;
+const UPSTREAM_ENDPOINT_TIMEOUT_MS = 9e4;
 function setPayloadSizeLimitKB(limitKB) {
   payloadSizeLimitKB = Math.max(256, Math.min(10240, limitKB));
 }
@@ -3701,7 +3701,7 @@ async function parseEventStream(body, onChunk, onComplete, onError, inputChars =
                 currentToolUse.inputBuffer += inputFragment;
               }
               if (currentToolUse && inputObj) {
-                currentToolUse.inputBuffer = JSON.stringify(inputObj);
+                currentToolUse.inputBuffer = typeof inputObj === "string" ? inputObj : JSON.stringify(inputObj);
               }
               if (isStop && currentToolUse) {
                 let finalInput = {};
@@ -3714,6 +3714,15 @@ async function parseEventStream(body, onChunk, onComplete, onError, inputChars =
                         "Tool input buffer: " + currentToolUse.inputBuffer.substring(0, 200)
                       );
                     finalInput = JSON.parse(currentToolUse.inputBuffer);
+                    if (typeof finalInput === "string") {
+                      try {
+                        const doubleParsed = JSON.parse(finalInput);
+                        finalInput = doubleParsed;
+                        if (logStreamEvents)
+                          proxyLogger.debug("Kiro", "Detected and fixed double-encoded tool input");
+                      } catch {
+                      }
+                    }
                     if (logStreamEvents)
                       proxyLogger.debug(
                         "Kiro",
@@ -4434,7 +4443,7 @@ function openAIChatToResponsesResponse(response, previousResponseId) {
   }
   return responsesResponse;
 }
-function openaiToKiro(request, profileArn, toolNameRegistry = new ToolNameRegistry(), systemPromptOverwrite) {
+function openaiToKiro(request, profileArn, toolNameRegistry = new ToolNameRegistry()) {
   const modelId = mapModelId(request.model);
   const origin = "AI_EDITOR";
   let systemPrompt = "";
@@ -4458,17 +4467,9 @@ function openaiToKiro(request, profileArn, toolNameRegistry = new ToolNameRegist
     }
   }
   const timestamp = (/* @__PURE__ */ new Date()).toISOString();
-  if (systemPromptOverwrite?.trim()) {
-    systemPrompt = `[Context: Current time is ${timestamp}]
-
-${systemPromptOverwrite}
+  systemPrompt = `[Context: Current time is ${timestamp}]
 
 ${systemPrompt}`;
-  } else {
-    systemPrompt = `[Context: Current time is ${timestamp}]
-
-${systemPrompt}`;
-  }
   const executionDirective = `
 <execution_discipline>
 当用户要求执行特定任务时，你必须遵循以下纪律：
@@ -4609,7 +4610,7 @@ ${systemPrompt}`;
     images,
     profileArn,
     {
-      maxTokens: request.max_tokens,
+      maxTokens: request.max_tokens || 16384,
       temperature: request.temperature,
       topP: request.top_p
     },
@@ -4817,7 +4818,7 @@ function createOpenaiStreamChunk(id, model, delta, finishReason = null, usage) {
   }
   return chunk;
 }
-function claudeToKiro(request, profileArn, toolNameRegistry = new ToolNameRegistry(), systemPromptOverwrite) {
+function claudeToKiro(request, profileArn, toolNameRegistry = new ToolNameRegistry()) {
   const modelId = mapModelId(request.model);
   const origin = "AI_EDITOR";
   let systemPrompt = "";
@@ -4831,17 +4832,9 @@ function claudeToKiro(request, profileArn, toolNameRegistry = new ToolNameRegist
     }).join("\n");
   }
   const timestamp = (/* @__PURE__ */ new Date()).toISOString();
-  if (systemPromptOverwrite?.trim()) {
-    systemPrompt = `[Context: Current time is ${timestamp}]
-
-${systemPromptOverwrite}
+  systemPrompt = `[Context: Current time is ${timestamp}]
 
 ${systemPrompt}`;
-  } else {
-    systemPrompt = `[Context: Current time is ${timestamp}]
-
-${systemPrompt}`;
-  }
   const executionDirective = `
 <execution_discipline>
 当用户要求执行特定任务时，你必须遵循以下纪律：
@@ -5004,7 +4997,7 @@ ${systemPrompt}`;
     images,
     profileArn,
     {
-      maxTokens: request.max_tokens,
+      maxTokens: request.max_tokens || 16384,
       temperature: request.temperature,
       topP: request.top_p
     },
@@ -6703,7 +6696,7 @@ class ProxyServer {
         modelName: "Simple Task",
         description: "Kiro fast model (routes to Haiku)",
         supportedInputTypes: ["TEXT"],
-        tokenLimits: { maxInputTokens: 2e5, maxOutputTokens: 4096 }
+        tokenLimits: { maxInputTokens: 2e5, maxOutputTokens: 16384 }
       },
       {
         modelId: "CLAUDE_HAIKU_4_5_20251001_V1_0",
@@ -7727,7 +7720,7 @@ class ProxyServer {
     }
     try {
       const toolNameRegistry = new ToolNameRegistry();
-      const kiroPayload = openaiToKiro(openaiRequest, account.profileArn, toolNameRegistry, this.config.systemPromptOverwrite);
+      const kiroPayload = openaiToKiro(openaiRequest, account.profileArn, toolNameRegistry);
       if (isStream) {
         res.writeHead(200, {
           "Content-Type": "text/event-stream",
@@ -7887,7 +7880,7 @@ class ProxyServer {
         modelName: "Simple Task",
         supportedInputTypes: ["TEXT"],
         maxInputTokens: 2e5,
-        maxOutputTokens: 4096
+        maxOutputTokens: 16384
       }),
       buildClientModel({
         id: "CLAUDE_HAIKU_4_5_20251001_V1_0",
@@ -8064,7 +8057,7 @@ class ProxyServer {
     this.events.onRequest?.({ path: "/v1/chat/completions", method: "POST", accountId: account.id });
     try {
       const toolNameRegistry = new ToolNameRegistry();
-      const kiroPayload = openaiToKiro(processedRequest, account.profileArn, toolNameRegistry, this.config.systemPromptOverwrite);
+      const kiroPayload = openaiToKiro(processedRequest, account.profileArn, toolNameRegistry);
       if (this.config.logRequests) {
         const userInput = kiroPayload.conversationState.currentMessage?.userInputMessage;
         const contentLength = typeof userInput?.content === "string" ? userInput.content.length : 0;
@@ -8099,7 +8092,7 @@ class ProxyServer {
         const { result, account: usedAccount } = await this.callWithRetry(
           account,
           async (acc) => {
-            const retryPayload = openaiToKiro(processedRequest, acc.profileArn, toolNameRegistry, this.config.systemPromptOverwrite);
+            const retryPayload = openaiToKiro(processedRequest, acc.profileArn, toolNameRegistry);
             return callKiroApi(acc, retryPayload, signal);
           },
           "/v1/chat/completions",
@@ -8249,7 +8242,7 @@ data: ${JSON.stringify({ type: "response.created", response: { id: responseId, o
         const { result: result2, account: usedAccount2 } = await this.callWithRetry(
           account,
           async (acc) => {
-            const retryPayload = openaiToKiro(processedRequest, acc.profileArn, toolNameRegistry, this.config.systemPromptOverwrite);
+            const retryPayload = openaiToKiro(processedRequest, acc.profileArn, toolNameRegistry);
             return callKiroApi(acc, retryPayload, signal);
           },
           "/v1/responses",
@@ -8385,7 +8378,7 @@ data: ${JSON.stringify({ type: "response.completed", response: streamedResponse 
       const { result, account: usedAccount } = await this.callWithRetry(
         account,
         async (acc) => {
-          const retryPayload = openaiToKiro(processedRequest, acc.profileArn, toolNameRegistry, this.config.systemPromptOverwrite);
+          const retryPayload = openaiToKiro(processedRequest, acc.profileArn, toolNameRegistry);
           return callKiroApi(acc, retryPayload, signal);
         },
         "/v1/responses",
@@ -8501,10 +8494,11 @@ data: ${JSON.stringify({ type: "response.completed", response: streamedResponse 
           if (toolUse) {
             const idx = toolCallIndex++;
             const restoredToolUse = toolNameRegistry.restoreToolUse(toolUse);
+            const argumentsStr = typeof toolUse.input === "string" ? toolUse.input : JSON.stringify(toolUse.input);
             pendingToolCalls.set(toolUse.toolUseId, {
               index: idx,
               name: toolUse.name,
-              arguments: JSON.stringify(toolUse.input)
+              arguments: argumentsStr
             });
             const toolChunk = createOpenaiStreamChunk(id, model, {
               tool_calls: [
@@ -8514,7 +8508,7 @@ data: ${JSON.stringify({ type: "response.completed", response: streamedResponse 
                   type: "function",
                   function: {
                     name: restoredToolUse.name,
-                    arguments: JSON.stringify(toolUse.input)
+                    arguments: argumentsStr
                   }
                 }
               ]
@@ -8821,7 +8815,7 @@ data: ${JSON.stringify({ type: "response.completed", response: streamedResponse 
     try {
       const toolNameRegistry = new ToolNameRegistry();
       this.syncKProxyDeviceId(account);
-      const kiroPayload = claudeToKiro(processedRequest, account.profileArn, toolNameRegistry, this.config.systemPromptOverwrite);
+      const kiroPayload = claudeToKiro(processedRequest, account.profileArn, toolNameRegistry);
       const estimatedInputTokens = Math.max(1, Math.round(JSON.stringify(kiroPayload).length * 0.3));
       const cacheProfile = promptCacheTracker.buildClaudeProfile(
         processedRequest.system,
@@ -8873,7 +8867,7 @@ data: ${JSON.stringify({ type: "response.completed", response: streamedResponse 
         const { result, account: usedAccount } = await this.callWithRetry(
           account,
           async (acc) => {
-            const retryPayload = claudeToKiro(processedRequest, acc.profileArn, toolNameRegistry, this.config.systemPromptOverwrite);
+            const retryPayload = claudeToKiro(processedRequest, acc.profileArn, toolNameRegistry);
             return callKiroApi(acc, retryPayload, signal);
           },
           "/v1/messages",
@@ -17000,12 +16994,10 @@ function initTray() {
 }
 function createWindow() {
   mainWindow = new electron.BrowserWindow({
-    title: `Kiro 账号管理器 v${electron.app.getVersion()}`,
-    width: 1200,
-    // 刚好容纳 3 列卡片 (340*3 + 16*2 + 边距)
-    height: 1100,
+    title: `Kiro v${electron.app.getVersion()}`,
     minWidth: 800,
     minHeight: 600,
+    fullscreen: true,
     show: false,
     autoHideMenuBar: true,
     icon,
@@ -17585,41 +17577,9 @@ electron.app.whenReady().then(async () => {
       store.set("accountData", data);
       lastSavedData = data;
       await createBackup(data);
-      if (proxyServer && proxyServer.isRunning()) {
-        const proxyAccounts = getStoredAccountsForProxy(data);
-        const pool = proxyServer.getAccountPool();
-        pool.clear();
-        proxyAccounts.forEach((acc) => pool.addAccount(acc));
-        console.log(`[ProxyServer] Auto-synced ${proxyAccounts.length} accounts to pool after save`);
-      }
     } catch (error) {
       console.error("Failed to save accounts:", error);
       throw error;
-    }
-  });
-  electron.ipcMain.handle("sync-accounts-to-proxy", async () => {
-    try {
-      if (!proxyServer || !proxyServer.isRunning()) {
-        return { success: false, error: "Proxy server is not running" };
-      }
-      await initStore();
-      const accountData = store.get("accountData");
-      const proxyAccounts = getStoredAccountsForProxy(accountData);
-      const pool = proxyServer.getAccountPool();
-      pool.clear();
-      proxyAccounts.forEach((acc) => pool.addAccount(acc));
-      console.log(`[ProxyServer] Manual sync: ${proxyAccounts.length} accounts synced to pool`);
-      return {
-        success: true,
-        syncedAccounts: proxyAccounts.length,
-        availableAccounts: pool.availableCount
-      };
-    } catch (error) {
-      console.error("Failed to sync accounts to proxy:", error);
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : "Unknown error"
-      };
     }
   });
   electron.ipcMain.handle("refresh-account-token", async (_event, account) => {

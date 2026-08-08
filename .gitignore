@@ -1,18 +1,6 @@
-test/kiro_client_auth.py
-test/kiro_full_auth.py
-test/kiro_oauth_login.py
-test/kiro_sso_auth.py
-test/kiro_usage_api.py
-test/__pycache__/kiro_full_auth.cpython-39.pyc
-test/__pycache__/kiro_sso_auth.cpython-39.pyc
-docs/CodeWhispererRuntimeService API.md
-docs/Kiro API.md
-kiro_token.json
-Kiro.code-workspace
-Kiro register.code-workspace
-test
-Kiro-account-manager/test
-Kiro-account-manager/.kiro
-Kiro register
-electron/
 node_modules
+dist
+out
+.DS_Store
+.eslintcache
+*.log*

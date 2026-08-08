@@ -143,13 +143,13 @@ export const useWebhookStore = create<WebhooksStore>()((set, get) => ({
 
   testWebhook: async (id) => {
     const webhook = get().webhooks.get(id)
-    if (!webhook) return { success: false, error: 'Webhook 不存在' }
+    if (!webhook) return { success: false, error: 'Webhook not found' }
     try {
       await sendWebhook(webhook, {
-        title: '🧪 测试通知',
-        message: '这是来自 Kiro 账号管理器的测试消息。如果你看到这条消息，说明 Webhook 配置正确。',
+        title: '🧪 Test Notification',
+        message: 'This is a test message from Kiro Account Manager. If you see this message, your webhook is configured correctly.',
         level: 'info',
-        fields: { 时间: new Date().toLocaleString('zh-CN') }
+        fields: { Time: new Date().toLocaleString('en-US') }
       })
       return { success: true }
     } catch (err) {

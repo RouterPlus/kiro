@@ -6,18 +6,13 @@
     <!-- https://developer.mozilla.org/en-US/docs/Web/HTTP/CSP -->
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'self'; script-src 'self' https://cdn.socket.io; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' ws: wss:"
+      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:"
     />
+    <script type="module" crossorigin src="./assets/index-Cnf2atzC.js"></script>
     <link rel="stylesheet" crossorigin href="./assets/index-B6gDS0XA.css">
   </head>
 
   <body>
     <div id="root"></div>
-    <!-- Socket.IO client -->
-    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js" crossorigin="anonymous"></script>
-    <!-- Web adapter (must load after Socket.IO, before app) -->
-    <script src="./web-adapter.js"></script>
-    <!-- Main app bundle -->
-    <script type="module" crossorigin src="./assets/index-BY7C04wm.js"></script>
   </body>
 </html>

@@ -1,5 +1,4 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { useNavigate, useLocation } from 'react-router-dom'
 import { AccountManager } from './components/accounts'
 import { Sidebar, type PageType } from './components/layout'
 import {
@@ -29,64 +28,7 @@ const TRAY_UPDATE_DEBOUNCE_MS = 400
 const BACKGROUND_RESULT_FLUSH_MS = 120
 
 function App(): React.JSX.Element {
-  const navigate = useNavigate()
-  const location = useLocation()
-
-  // Page mapping
-  const pathToPage: Record<string, PageType> = {
-    '/': 'home',
-    '/accounts': 'accounts',
-    '/machine-id': 'machineId',
-    '/kiro-settings': 'kiroSettings',
-    '/proxy': 'proxy',
-    '/k-proxy': 'kproxy',
-    '/proxy-pool': 'proxyPool',
-    '/register': 'register',
-    '/subscription': 'subscription',
-    '/webhooks': 'webhooks',
-    '/diagnostics': 'diagnose',
-    '/config-sync': 'configSync',
-    '/logs': 'logs',
-    '/settings': 'settings',
-    '/about': 'about'
-  }
-
-  const pageToPath: Record<PageType, string> = {
-    'home': '/',
-    'accounts': '/accounts',
-    'machineId': '/machine-id',
-    'kiroSettings': '/kiro-settings',
-    'proxy': '/proxy',
-    'kproxy': '/k-proxy',
-    'proxyPool': '/proxy-pool',
-    'register': '/register',
-    'subscription': '/subscription',
-    'webhooks': '/webhooks',
-    'diagnose': '/diagnostics',
-    'configSync': '/config-sync',
-    'logs': '/logs',
-    'settings': '/settings',
-    'about': '/about'
-  }
-
-  // Sync URL to page state
-  const [currentPage, setCurrentPage] = useState<PageType>(() => {
-    return pathToPage[location.pathname] || 'home'
-  })
-
-  // Update page when URL changes
-  useEffect(() => {
-    const page = pathToPage[location.pathname] || 'home'
-    setCurrentPage(page)
-  }, [location.pathname])
-
-  // Handle page changes - update URL
-  const handlePageChange = useCallback((page: PageType) => {
-    const path = pageToPath[page] || '/'
-    navigate(path)
-    setCurrentPage(page)
-  }, [navigate])
-
+  const [currentPage, setCurrentPage] = useState<PageType>('home')
   const [sidebarCollapsed, setSidebarCollapsed] = useState(true)
 
   const {
@@ -352,7 +294,7 @@ function App(): React.JSX.Element {
         return <SubscriptionPage />
       case 'webhooks':
         return <WebhooksPage />
-      case 'diagnostics':
+      case 'diagnose':
         return <DiagnosePage />
       case 'configSync':
         return <ConfigSyncPage />
@@ -371,7 +313,7 @@ function App(): React.JSX.Element {
     <div className="h-screen bg-background flex">
       <Sidebar
         currentPage={currentPage}
-        onPageChange={handlePageChange}
+        onPageChange={setCurrentPage}
         collapsed={sidebarCollapsed}
         onToggleCollapse={() => setSidebarCollapsed(!sidebarCollapsed)}
       />

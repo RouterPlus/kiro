@@ -1207,7 +1207,7 @@ export class ProxyServer {
         modelName: 'Simple Task',
         description: 'Kiro fast model (routes to Haiku)',
         supportedInputTypes: ['TEXT'],
-        tokenLimits: { maxInputTokens: 200000, maxOutputTokens: 4096 }
+        tokenLimits: { maxInputTokens: 200000, maxOutputTokens: 16384 }
       } as KiroModel,
 
       {
@@ -2523,7 +2523,7 @@ export class ProxyServer {
 
     try {
       const toolNameRegistry = new ToolNameRegistry()
-      const kiroPayload = openaiToKiro(openaiRequest, account.profileArn, toolNameRegistry, this.config.systemPromptOverwrite)
+      const kiroPayload = openaiToKiro(openaiRequest, account.profileArn, toolNameRegistry)
 
       if (isStream) {
         // SSE 流式
@@ -2684,7 +2684,7 @@ export class ProxyServer {
         modelName: 'Simple Task',
         supportedInputTypes: ['TEXT'],
         maxInputTokens: 200000,
-        maxOutputTokens: 4096
+        maxOutputTokens: 16384
       }),
 
       buildClientModel({
@@ -2902,7 +2902,7 @@ export class ProxyServer {
       const toolNameRegistry = new ToolNameRegistry()
 
       // 转换为 Kiro 格式
-      const kiroPayload = openaiToKiro(processedRequest, account.profileArn, toolNameRegistry, this.config.systemPromptOverwrite)
+      const kiroPayload = openaiToKiro(processedRequest, account.profileArn, toolNameRegistry)
 
       // 记录请求详情到日志
       if (this.config.logRequests) {
@@ -2943,7 +2943,7 @@ export class ProxyServer {
         const { result, account: usedAccount } = await this.callWithRetry(
           account,
           async (acc) => {
-            const retryPayload = openaiToKiro(processedRequest, acc.profileArn, toolNameRegistry, this.config.systemPromptOverwrite)
+            const retryPayload = openaiToKiro(processedRequest, acc.profileArn, toolNameRegistry)
             return callKiroApi(acc, retryPayload, signal)
           },
           '/v1/chat/completions',
@@ -3108,7 +3108,7 @@ export class ProxyServer {
         const { result, account: usedAccount } = await this.callWithRetry(
           account,
           async (acc) => {
-            const retryPayload = openaiToKiro(processedRequest, acc.profileArn, toolNameRegistry, this.config.systemPromptOverwrite)
+            const retryPayload = openaiToKiro(processedRequest, acc.profileArn, toolNameRegistry)
             return callKiroApi(acc, retryPayload, signal)
           },
           '/v1/responses',
@@ -3218,7 +3218,7 @@ export class ProxyServer {
       const { result, account: usedAccount } = await this.callWithRetry(
         account,
         async (acc) => {
-          const retryPayload = openaiToKiro(processedRequest, acc.profileArn, toolNameRegistry, this.config.systemPromptOverwrite)
+          const retryPayload = openaiToKiro(processedRequest, acc.profileArn, toolNameRegistry)
           return callKiroApi(acc, retryPayload, signal)
         },
         '/v1/responses',
@@ -3350,10 +3350,13 @@ export class ProxyServer {
           if (toolUse) {
             const idx = toolCallIndex++
             const restoredToolUse = toolNameRegistry.restoreToolUse(toolUse)
+            // Defensive: handle already-stringified input (can occur in long conversations)
+            const argumentsStr =
+              typeof toolUse.input === 'string' ? toolUse.input : JSON.stringify(toolUse.input)
             pendingToolCalls.set(toolUse.toolUseId, {
               index: idx,
               name: toolUse.name,
-              arguments: JSON.stringify(toolUse.input)
+              arguments: argumentsStr
             })
             const toolChunk = createOpenaiStreamChunk(id, model, {
               tool_calls: [
@@ -3363,7 +3366,7 @@ export class ProxyServer {
                   type: 'function',
                   function: {
                     name: restoredToolUse.name,
-                    arguments: JSON.stringify(toolUse.input)
+                    arguments: argumentsStr
                   }
                 }
               ]
@@ -3732,7 +3735,7 @@ export class ProxyServer {
       const toolNameRegistry = new ToolNameRegistry()
 
       this.syncKProxyDeviceId(account)
-      const kiroPayload = claudeToKiro(processedRequest, account.profileArn, toolNameRegistry, this.config.systemPromptOverwrite)
+      const kiroPayload = claudeToKiro(processedRequest, account.profileArn, toolNameRegistry)
 
       // 构建 prompt cache profile（用于模拟缓存 usage）
       const estimatedInputTokens = Math.max(1, Math.round(JSON.stringify(kiroPayload).length * 0.3))
@@ -3793,7 +3796,7 @@ export class ProxyServer {
         const { result, account: usedAccount } = await this.callWithRetry(
           account,
           async (acc) => {
-            const retryPayload = claudeToKiro(processedRequest, acc.profileArn, toolNameRegistry, this.config.systemPromptOverwrite)
+            const retryPayload = claudeToKiro(processedRequest, acc.profileArn, toolNameRegistry)
             return callKiroApi(acc, retryPayload, signal)
           },
           '/v1/messages',

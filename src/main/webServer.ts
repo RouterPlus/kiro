@@ -38,12 +38,12 @@ export class WebServer {
 
   private setupRoutes() {
     // Health check
-    this.app.get('/health', (req, res) => {
+    this.app.get('/health', (_req, res) => {
       res.json({ success: true, status: 'healthy', timestamp: Date.now() });
     });
 
     // Account endpoints - bridge to IPC
-    this.app.get('/api/accounts', async (req, res) => {
+    this.app.get('/api/accounts', async (_req, res) => {
       try {
         const accounts = await this.invokeIpc('load-accounts');
         res.json({ success: true, data: accounts });
@@ -62,7 +62,7 @@ export class WebServer {
     });
 
     // Proxy endpoints
-    this.app.get('/api/proxy/status', async (req, res) => {
+    this.app.get('/api/proxy/status', async (_req, res) => {
       try {
         const status = await this.invokeIpc('proxy-get-status');
         res.json({ success: true, data: status });
@@ -80,7 +80,7 @@ export class WebServer {
       }
     });
 
-    this.app.post('/api/proxy/stop', async (req, res) => {
+    this.app.post('/api/proxy/stop', async (_req, res) => {
       try {
         const result = await this.invokeIpc('proxy-stop');
         res.json({ success: true, data: result });
@@ -134,8 +134,8 @@ export class WebServer {
     });
   }
 
-  private invokeIpc(channel: string, ...args: any[]): Promise<any> {
-    return new Promise((resolve, reject) => {
+  private invokeIpc(_channel: string, ..._args: any[]): Promise<any> {
+    return new Promise((_resolve, reject) => {
       // Since we're in main process, we need to call the handler directly
       // In production, you'd import and call the actual handler functions
       reject(new Error('IPC bridge not fully implemented yet'));

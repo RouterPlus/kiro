@@ -41,7 +41,7 @@ export function setLogStreamEvents(enabled: boolean): void {
 let payloadSizeLimitKB = 1536 // UI/config default
 const UPSTREAM_SAFE_PAYLOAD_LIMIT_KB = 512
 const EMERGENCY_PAYLOAD_LIMIT_KB = 320
-const UPSTREAM_ENDPOINT_TIMEOUT_MS = 25_000
+const UPSTREAM_ENDPOINT_TIMEOUT_MS = 90_000 // Increased from 25s to 90s to handle slow AWS responses
 export function setPayloadSizeLimitKB(limitKB: number): void {
   payloadSizeLimitKB = Math.max(256, Math.min(10240, limitKB))
 }
@@ -2182,7 +2182,9 @@ async function parseEventStream(
 
               // 如果直接提供了完整输入对象
               if (currentToolUse && inputObj) {
-                currentToolUse.inputBuffer = JSON.stringify(inputObj)
+                // Defensive: check if already stringified (can happen after context compaction)
+                currentToolUse.inputBuffer =
+                  typeof inputObj === 'string' ? inputObj : JSON.stringify(inputObj)
               }
 
               // Tool use 完成
@@ -2197,6 +2199,19 @@ async function parseEventStream(
                         'Tool input buffer: ' + currentToolUse.inputBuffer.substring(0, 200)
                       )
                     finalInput = JSON.parse(currentToolUse.inputBuffer)
+
+                    // Handle double-encoded JSON (can occur after long conversations)
+                    if (typeof finalInput === 'string') {
+                      try {
+                        const doubleParsed = JSON.parse(finalInput)
+                        finalInput = doubleParsed
+                        if (logStreamEvents)
+                          proxyLogger.debug('Kiro', 'Detected and fixed double-encoded tool input')
+                      } catch {
+                        // Single parse was correct, result is intentionally a string
+                      }
+                    }
+
                     if (logStreamEvents)
                       proxyLogger.debug(
                         'Kiro',

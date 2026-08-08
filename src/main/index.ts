@@ -2033,11 +2033,10 @@ function initTray(): void {
 function createWindow(): void {
   // Create the browser window.
   mainWindow = new BrowserWindow({
-    title: `Kiro 账号管理器 v${app.getVersion()}`,
-    width: 1200, // 刚好容纳 3 列卡片 (340*3 + 16*2 + 边距)
-    height: 1100,
+    title: `Kiro v${app.getVersion()}`,
     minWidth: 800,
     minHeight: 600,
+    fullscreen: true,
     show: false,
     autoHideMenuBar: true,
     icon,
@@ -2820,55 +2819,9 @@ app.whenReady().then(async () => {
 
       // 每次保存时也创建备份
       await createBackup(data)
-
-      // 自动同步账号到代理服务器池
-      if (proxyServer && proxyServer.isRunning()) {
-        const proxyAccounts = getStoredAccountsForProxy(data)
-        const pool = proxyServer.getAccountPool()
-
-        // 清除池中的所有账号
-        pool.clear()
-
-        // 重新添加所有活跃账号
-        proxyAccounts.forEach((acc) => pool.addAccount(acc))
-
-        console.log(`[ProxyServer] Auto-synced ${proxyAccounts.length} accounts to pool after save`)
-      }
     } catch (error) {
       console.error('Failed to save accounts:', error)
       throw error
-    }
-  })
-
-  // IPC: 手动同步账号到代理服务器
-  ipcMain.handle('sync-accounts-to-proxy', async () => {
-    try {
-      if (!proxyServer || !proxyServer.isRunning()) {
-        return { success: false, error: 'Proxy server is not running' }
-      }
-
-      await initStore()
-      const accountData = store!.get('accountData') as { accounts?: Record<string, any> } | undefined
-      const proxyAccounts = getStoredAccountsForProxy(accountData)
-      const pool = proxyServer.getAccountPool()
-
-      // 清除并重新同步
-      pool.clear()
-      proxyAccounts.forEach((acc) => pool.addAccount(acc))
-
-      console.log(`[ProxyServer] Manual sync: ${proxyAccounts.length} accounts synced to pool`)
-
-      return {
-        success: true,
-        syncedAccounts: proxyAccounts.length,
-        availableAccounts: pool.availableCount
-      }
-    } catch (error) {
-      console.error('Failed to sync accounts to proxy:', error)
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Unknown error'
-      }
     }
   })
 

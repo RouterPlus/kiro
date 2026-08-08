@@ -1471,19 +1471,6 @@ export function RegisterPage(): React.JSX.Element {
                   disabled={isRunning || batchRunning}
                 />
               </div>
-              <div className="space-y-1.5 md:col-span-2">
-                <Label>{isEn ? 'Proxy URL (Optional)' : '代理 URL（可选）'}</Label>
-                <Input
-                  value={proxyUrl}
-                  onChange={(e) => setProxyUrl(e.target.value)}
-                  placeholder={
-                    isEn
-                      ? 'http://user:pass@host:port or socks5://host:port'
-                      : 'http://user:pass@host:port 或 socks5://host:port'
-                  }
-                  disabled={isRunning || batchRunning}
-                />
-              </div>
             </div>
           )}
 
@@ -1529,19 +1516,6 @@ export function RegisterPage(): React.JSX.Element {
                     : '上传包含 Outlook 账号数组的 JSON 文件，需包含 refresh_token, access_token, graph_refresh_token, graph_access_token 和 client_id'}
                 </p>
               </div>
-              <div className="space-y-1.5">
-                <Label>{isEn ? 'Proxy URL (Optional)' : '代理 URL（可选）'}</Label>
-                <Input
-                  value={proxyUrl}
-                  onChange={(e) => setProxyUrl(e.target.value)}
-                  placeholder={
-                    isEn
-                      ? 'http://user:pass@host:port or socks5://host:port'
-                      : 'http://user:pass@host:port 或 socks5://host:port'
-                  }
-                  disabled={isRunning || batchRunning}
-                />
-              </div>
             </div>
           )}
 
@@ -1577,21 +1551,6 @@ export function RegisterPage(): React.JSX.Element {
                   />
                 </div>
               </div>
-              {mode === 'tempmail' && (
-                <div className="space-y-1.5">
-                  <Label>{isEn ? 'Proxy URL (Optional)' : '代理 URL（可选）'}</Label>
-                  <Input
-                    value={proxyUrl}
-                    onChange={(e) => setProxyUrl(e.target.value)}
-                    placeholder={
-                      isEn
-                        ? 'http://user:pass@host:port or socks5://host:port'
-                        : 'http://user:pass@host:port 或 socks5://host:port'
-                    }
-                    disabled={isRunning || batchRunning}
-                  />
-                </div>
-              )}
               <p className="text-xs text-muted-foreground">{t('register.tempMailDesc')}</p>
             </div>
           )}
@@ -1634,26 +1593,30 @@ export function RegisterPage(): React.JSX.Element {
                   disabled={isRunning || batchRunning}
                 />
               </div>
-              {mode === 'ddg' && (
-                <div className="space-y-1.5">
-                  <Label>{isEn ? 'Proxy URL (Optional)' : '代理 URL（可选）'}</Label>
-                  <Input
-                    value={proxyUrl}
-                    onChange={(e) => setProxyUrl(e.target.value)}
-                    placeholder={
-                      isEn
-                        ? 'http://user:pass@host:port or socks5://host:port'
-                        : 'http://user:pass@host:port 或 socks5://host:port'
-                    }
-                    disabled={isRunning || batchRunning}
-                  />
-                </div>
-              )}
               <p className="text-xs text-muted-foreground">
                 {isEn
                   ? 'DDG generates a @duck.com alias and forwards mail to your Gmail. Gmail IMAP polls for the OTP.'
                   : 'DDG 生成 @duck.com 别名并转发邮件到 Gmail，通过 Gmail IMAP 轮询获取验证码。'}
               </p>
+            </div>
+          )}
+
+          {/* Proxy URL for non-browser modes */}
+          {(mode === 'moemail' || mode === 'outlook' || mode === 'tempmail' || mode === 'ddg') && (
+            <div className="p-4 bg-muted/30 rounded-lg border border-dashed">
+              <div className="space-y-1.5">
+                <Label>{isEn ? 'Proxy URL (Optional)' : '代理 URL（可选）'}</Label>
+                <Input
+                  value={proxyUrl}
+                  onChange={(e) => setProxyUrl(e.target.value)}
+                  placeholder={
+                    isEn
+                      ? 'http://user:pass@host:port or socks5://host:port'
+                      : 'http://user:pass@host:port 或 socks5://host:port'
+                  }
+                  disabled={isRunning || batchRunning}
+                />
+              </div>
             </div>
           )}
 

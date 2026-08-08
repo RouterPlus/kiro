@@ -257,8 +257,7 @@ export function openAIChatToResponsesResponse(
 export function openaiToKiro(
   request: OpenAIChatRequest,
   profileArn?: string,
-  toolNameRegistry: ToolNameRegistry = new ToolNameRegistry(),
-  systemPromptOverwrite?: string
+  toolNameRegistry: ToolNameRegistry = new ToolNameRegistry()
 ): KiroPayload {
   const modelId = mapModelId(request.model)
   const origin = 'AI_EDITOR'
@@ -288,13 +287,7 @@ export function openaiToKiro(
 
   // 注入时间戳
   const timestamp = new Date().toISOString()
-
-  // 如果配置了自定义系统提示，使用它作为主要系统提示
-  if (systemPromptOverwrite?.trim()) {
-    systemPrompt = `[Context: Current time is ${timestamp}]\n\n${systemPromptOverwrite}\n\n${systemPrompt}`
-  } else {
-    systemPrompt = `[Context: Current time is ${timestamp}]\n\n${systemPrompt}`
-  }
+  systemPrompt = `[Context: Current time is ${timestamp}]\n\n${systemPrompt}`
 
   // 注入执行导向指令（防止 AI 在探索过程中丢失目标）
   const executionDirective = `
@@ -478,7 +471,7 @@ export function openaiToKiro(
     images,
     profileArn,
     {
-      maxTokens: request.max_tokens,
+      maxTokens: request.max_tokens || 16384,
       temperature: request.temperature,
       topP: request.top_p
     },
@@ -765,8 +758,7 @@ export function createOpenaiStreamChunk(
 export function claudeToKiro(
   request: ClaudeRequest,
   profileArn?: string,
-  toolNameRegistry: ToolNameRegistry = new ToolNameRegistry(),
-  systemPromptOverwrite?: string
+  toolNameRegistry: ToolNameRegistry = new ToolNameRegistry()
 ): KiroPayload {
   const modelId = mapModelId(request.model)
   const origin = 'AI_EDITOR'
@@ -787,13 +779,7 @@ export function claudeToKiro(
 
   // 注入时间戳
   const timestamp = new Date().toISOString()
-
-  // 如果配置了自定义系统提示，使用它作为主要系统提示
-  if (systemPromptOverwrite?.trim()) {
-    systemPrompt = `[Context: Current time is ${timestamp}]\n\n${systemPromptOverwrite}\n\n${systemPrompt}`
-  } else {
-    systemPrompt = `[Context: Current time is ${timestamp}]\n\n${systemPrompt}`
-  }
+  systemPrompt = `[Context: Current time is ${timestamp}]\n\n${systemPrompt}`
 
   // 注入执行导向指令（防止 AI 在探索过程中丢失目标）
   const executionDirective = `
@@ -1025,7 +1011,7 @@ export function claudeToKiro(
     images,
     profileArn,
     {
-      maxTokens: request.max_tokens,
+      maxTokens: request.max_tokens || 16384,
       temperature: request.temperature,
       topP: request.top_p
     },
