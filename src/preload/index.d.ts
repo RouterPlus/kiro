@@ -285,6 +285,20 @@ interface KiroApi {
     error?: string
   }>
 
+  // 生成新的账号机器 ID
+  generateAccountMachineId: () => Promise<{
+    success: boolean
+    machineId?: string
+  }>
+
+  // 自动同步账号到代理池并刷新模型
+  autoSyncAccount: (accountId: string) => Promise<{
+    success: boolean
+    modelCount?: number
+    warning?: string
+    error?: string
+  }>
+
   // 从 Kiro 本地配置导入凭证
   loadKiroCredentials: () => Promise<{
     success: boolean
@@ -1421,6 +1435,46 @@ interface KiroApi {
   }) => Promise<{ success: boolean; error?: string }>
 
   registrationCancelBrowser: (taskId?: string) => Promise<{ success: boolean }>
+
+  // 获取所有浏览器注册窗口状态
+  registrationGetBrowserWindows: () => Promise<{
+    success: boolean
+    windows: Array<{
+      taskId: string
+      email: string
+      visible: boolean
+      title: string
+      url: string
+      config: {
+        useDDG?: boolean
+        ddgAuthToken?: string
+        ddgGmailEmail?: string
+        ddgGmailAppPassword?: string
+        useTempMailPlus?: boolean
+        tempMailPlusEmail?: string
+        tempMailPlusEpin?: string
+        tempMailPlusDomain?: string
+        providedEmailData?: string
+        providedEmailApiKey?: string
+        providedEmailApiBaseURL?: string
+        fullName?: string
+        password?: string
+        proxyUrl?: string
+        taskId?: string
+      }
+    }>
+  }>
+
+  // 显示浏览器注册窗口
+  registrationShowBrowserWindow: (taskId: string) => Promise<{ success: boolean; error?: string }>
+
+  // 隐藏浏览器注册窗口
+  registrationHideBrowserWindow: (taskId: string) => Promise<{ success: boolean; error?: string }>
+
+  // 重启浏览器注册任务
+  registrationRestartBrowserTask: (
+    taskId: string
+  ) => Promise<{ success: boolean; newTaskId?: string; error?: string }>
 
   onRegistrationLog: (callback: (msg: string) => void) => () => void
 

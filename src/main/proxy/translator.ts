@@ -541,6 +541,27 @@ function parseImageUrl(url: string): KiroImage | null {
         source: { bytes: match[2] }
       }
     }
+  } else if (url.startsWith('http://') || url.startsWith('https://')) {
+    // HTTP/HTTPS URL - 从 URL 路径提取格式
+    const urlObj = new URL(url)
+    const pathname = urlObj.pathname.toLowerCase()
+    const extension = pathname.split('.').pop()
+
+    // 支持常见图片格式
+    const formatMap: Record<string, string> = {
+      'jpg': 'jpeg',
+      'jpeg': 'jpeg',
+      'png': 'png',
+      'gif': 'gif',
+      'webp': 'webp'
+    }
+
+    const format = extension && formatMap[extension] ? formatMap[extension] : 'jpeg'
+
+    return {
+      format,
+      source: { url }
+    }
   }
   return null
 }

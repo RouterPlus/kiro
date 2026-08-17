@@ -2403,7 +2403,12 @@ function stripMessageAttachments(message, scope) {
   const imageCount = message.images?.length ?? 0;
   const documentCount = message.documents?.length ?? 0;
   if (imageCount === 0 && documentCount === 0) return 0;
-  const approxBytes = (message.images ?? []).reduce((sum, image) => sum + (image.source?.bytes?.length ?? 0), 0) + (message.documents ?? []).reduce(
+  const approxBytes = (message.images ?? []).reduce((sum, image) => {
+    if ("bytes" in image.source) {
+      return sum + (image.source.bytes?.length ?? 0);
+    }
+    return sum + 50;
+  }, 0) + (message.documents ?? []).reduce(
     (sum, document) => sum + (document.source?.bytes?.length ?? 0),
     0
   );
@@ -4668,6 +4673,22 @@ function parseImageUrl(url2) {
         source: { bytes: match[2] }
       };
     }
+  } else if (url2.startsWith("http://") || url2.startsWith("https://")) {
+    const urlObj = new URL(url2);
+    const pathname = urlObj.pathname.toLowerCase();
+    const extension = pathname.split(".").pop();
+    const formatMap = {
+      "jpg": "jpeg",
+      "jpeg": "jpeg",
+      "png": "png",
+      "gif": "gif",
+      "webp": "webp"
+    };
+    const format = extension && formatMap[extension] ? formatMap[extension] : "jpeg";
+    return {
+      format,
+      source: { url: url2 }
+    };
   }
   return null;
 }
@@ -14623,6 +14644,79 @@ function registerIPCHandlers(getMainWindow) {
   electron.ipcMain.handle("registration-status", async () => {
     return { inProgress: registrarPool.size > 0 || browserRegistrarPool.size > 0, count: registrarPool.size + browserRegistrarPool.size };
   });
+  electron.ipcMain.handle("registration-get-browser-windows", async () => {
+    const windows = [];
+    for (const [taskId, registrar] of browserRegistrarPool.entries()) {
+      const win = registrar.win;
+      if (win && !win.isDestroyed()) {
+        windows.push({
+          taskId,
+          email: registrar.cfg.providedEmailData?.split(":")[0] || "N/A",
+          visible: win.isVisible(),
+          title: win.getTitle(),
+          url: win.webContents.getURL().slice(0, 100),
+          config: registrar.cfg
+        });
+      }
+    }
+    return { success: true, windows };
+  });
+  electron.ipcMain.handle("registration-show-browser-window", async (_event, taskId) => {
+    const registrar = browserRegistrarPool.get(taskId);
+    if (!registrar) {
+      return { success: false, error: "Task not found" };
+    }
+    const win = registrar.win;
+    if (win && !win.isDestroyed()) {
+      win.show();
+      win.focus();
+      return { success: true };
+    }
+    return { success: false, error: "Window not found" };
+  });
+  electron.ipcMain.handle("registration-hide-browser-window", async (_event, taskId) => {
+    const registrar = browserRegistrarPool.get(taskId);
+    if (!registrar) {
+      return { success: false, error: "Task not found" };
+    }
+    const win = registrar.win;
+    if (win && !win.isDestroyed()) {
+      win.hide();
+      return { success: true };
+    }
+    return { success: false, error: "Window not found" };
+  });
+  electron.ipcMain.handle("registration-restart-browser-task", async (_event, taskId) => {
+    const oldRegistrar = browserRegistrarPool.get(taskId);
+    if (!oldRegistrar) {
+      return { success: false, error: "Task not found" };
+    }
+    oldRegistrar.abort();
+    await oldRegistrar.destroy();
+    browserRegistrarPool.delete(taskId);
+    const config = oldRegistrar.cfg;
+    const newTaskId = `browser-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+    const logPrefix = `[#${newTaskId.slice(0, 12)}] `;
+    const newRegistrar = new BrowserRegistrar(
+      { ...config, taskId: newTaskId },
+      (msg) => sendLog(`${logPrefix}${msg}`, newTaskId)
+    );
+    browserRegistrarPool.set(newTaskId, newRegistrar);
+    newRegistrar.run().then((result) => {
+      browserRegistrarPool.delete(newTaskId);
+      const win = getMainWindow();
+      if (win && !win.isDestroyed()) {
+        win.webContents.send("registration-complete", result);
+      }
+    }).catch((err) => {
+      browserRegistrarPool.delete(newTaskId);
+      const errMsg = err instanceof Error ? err.message : String(err);
+      console.error(`[Browser] Task ${newTaskId} failed:`, errMsg);
+    }).finally(() => {
+      newRegistrar.destroy();
+    });
+    return { success: true, newTaskId };
+  });
   electron.ipcMain.handle("registration-start-browser", async (_event, config) => {
     const taskId = config.taskId || `browser-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
     const logPrefix = config.taskId ? `[#${config.taskId.slice(0, 12)}] ` : "";
@@ -15893,6 +15987,50 @@ async function importRegisteredAccount(result) {
     expiresAt: now + 36e5
   });
   mainWindow?.webContents.send("accounts-data-updated", accountData);
+  if (result.refreshToken && result.clientId && result.clientSecret) {
+    console.log(`[ImportAccount] Auto-refreshing token for ${result.email}...`);
+    try {
+      const refreshResult = await refreshTokenByMethod(
+        result.refreshToken,
+        result.clientId,
+        result.clientSecret,
+        result.region || "us-east-1",
+        "IdC"
+      );
+      if (refreshResult.success && refreshResult.accessToken) {
+        const updatedAccountData = store?.get("accountData");
+        if (updatedAccountData?.accounts?.[id]) {
+          updatedAccountData.accounts[id].credentials.accessToken = refreshResult.accessToken;
+          updatedAccountData.accounts[id].credentials.expiresAt = now + (refreshResult.expiresIn || 3600) * 1e3;
+          if (refreshResult.refreshToken) {
+            updatedAccountData.accounts[id].credentials.refreshToken = refreshResult.refreshToken;
+          }
+          store?.set("accountData", updatedAccountData);
+          lastSavedData = updatedAccountData;
+        }
+        const proxyAccount = proxyServer?.getAccountPool().getAccount(id);
+        if (proxyAccount) {
+          proxyAccount.accessToken = refreshResult.accessToken;
+          proxyAccount.expiresAt = now + (refreshResult.expiresIn || 3600) * 1e3;
+          if (refreshResult.refreshToken) {
+            proxyAccount.refreshToken = refreshResult.refreshToken;
+          }
+          proxyServer?.getAccountPool().addAccount(proxyAccount);
+        }
+        console.log(`[ImportAccount] Token refreshed successfully for ${result.email}`);
+        mainWindow?.webContents.send("accounts-data-updated", updatedAccountData);
+      } else {
+        console.warn(
+          `[ImportAccount] Token refresh failed for ${result.email}: ${refreshResult.error || "Unknown error"}`
+        );
+      }
+    } catch (error) {
+      console.error(
+        `[ImportAccount] Token refresh error for ${result.email}:`,
+        error instanceof Error ? error.message : String(error)
+      );
+    }
+  }
 }
 async function runBrowserReplacementRegistration(reason, requireEnabled = true) {
   if (autoReplacementRunning) return;
@@ -17008,9 +17146,29 @@ function createWindow() {
       nodeIntegration: false
     }
   });
+  let resizeTimer = null;
+  mainWindow.on("resize", () => {
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+    if (resizeTimer) clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(() => {
+      if (!mainWindow || mainWindow.isDestroyed()) return;
+      const display = electron.screen.getPrimaryDisplay();
+      const { width, height } = display.workAreaSize;
+      const [currentWidth, currentHeight] = mainWindow.getSize();
+      if (currentWidth !== width || currentHeight !== height) {
+        console.log(`[Window] Resizing to match screen: ${width}x${height}`);
+        mainWindow.setSize(width, height);
+        mainWindow.center();
+      }
+    }, 500);
+  });
   mainWindow.on("ready-to-show", () => {
     mainWindow?.setTitle(`Kiro 账号管理器 v${electron.app.getVersion()}`);
     mainWindow?.show();
+    const display = electron.screen.getPrimaryDisplay();
+    const { width, height } = display.workAreaSize;
+    mainWindow?.setSize(width, height);
+    mainWindow?.center();
     setTimeout(async () => {
       try {
         await initStore();
@@ -18548,6 +18706,49 @@ electron.app.whenReady().then(async () => {
       }
     }
   );
+  electron.ipcMain.handle("generate-account-machine-id", async () => {
+    const newMachineId = crypto.randomUUID();
+    console.log(`[IPC] Generated new machine ID: ${newMachineId}`);
+    return { success: true, machineId: newMachineId };
+  });
+  electron.ipcMain.handle("auto-sync-account", async (_event, accountId) => {
+    try {
+      if (!store || !proxyServer) {
+        return { success: false, error: "Store or proxy server not initialized" };
+      }
+      const accountData = store.get("accountData");
+      const account = accountData?.accounts?.[accountId];
+      if (!account) {
+        return { success: false, error: "Account not found" };
+      }
+      const proxyAccount = {
+        id: account.id,
+        email: account.email,
+        accessToken: account.credentials.accessToken,
+        refreshToken: account.credentials.refreshToken,
+        clientId: account.credentials.clientId,
+        clientSecret: account.credentials.clientSecret,
+        region: account.credentials.region || "us-east-1",
+        authMethod: account.credentials.authMethod || "IdC",
+        provider: account.credentials.provider || "BuilderId",
+        expiresAt: account.credentials.expiresAt || Date.now() + 36e5,
+        machineId: account.machineId
+      };
+      proxyServer.getAccountPool().addAccount(proxyAccount);
+      console.log(`[AutoSync] Added account to pool: ${account.email}`);
+      try {
+        const models = await fetchKiroModels(proxyAccount);
+        console.log(`[AutoSync] Fetched ${models.length} models for ${account.email}`);
+        return { success: true, modelCount: models.length };
+      } catch (error) {
+        console.warn(`[AutoSync] Failed to fetch models: ${error}`);
+        return { success: true, modelCount: 0, warning: "Models fetch failed" };
+      }
+    } catch (error) {
+      console.error("[AutoSync] Error:", error);
+      return { success: false, error: error instanceof Error ? error.message : "Auto-sync failed" };
+    }
+  });
   electron.ipcMain.handle("get-local-active-account", async () => {
     const os2 = await import("os");
     const path2 = await import("path");
@@ -20819,6 +21020,16 @@ electron.app.whenReady().then(async () => {
     }
   };
   createWindow();
+  electron.screen.on("display-metrics-changed", (_event, display) => {
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+    const primaryDisplay = electron.screen.getPrimaryDisplay();
+    if (display.id === primaryDisplay.id) {
+      const { width, height } = primaryDisplay.workAreaSize;
+      console.log(`[Window] Display metrics changed, resizing to: ${width}x${height}`);
+      mainWindow.setSize(width, height);
+      mainWindow.center();
+    }
+  });
   electron.app.on("activate", function() {
     if (electron.BrowserWindow.getAllWindows().length === 0) {
       createWindow();

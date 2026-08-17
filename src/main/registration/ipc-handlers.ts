@@ -119,6 +119,111 @@ export function registerIPCHandlers(getMainWindow: () => BrowserWindow | null): 
     return { inProgress: registrarPool.size > 0 || browserRegistrarPool.size > 0, count: registrarPool.size + browserRegistrarPool.size }
   })
 
+  // 获取所有浏览器注册窗口状态
+  ipcMain.handle('registration-get-browser-windows', async () => {
+    const windows: Array<{
+      taskId: string
+      email: string
+      visible: boolean
+      title: string
+      url: string
+      config: BrowserRegistrationConfig
+    }> = []
+
+    for (const [taskId, registrar] of browserRegistrarPool.entries()) {
+      const win = (registrar as any).win as BrowserWindow | null
+      if (win && !win.isDestroyed()) {
+        windows.push({
+          taskId,
+          email: (registrar as any).cfg.providedEmailData?.split(':')[0] || 'N/A',
+          visible: win.isVisible(),
+          title: win.getTitle(),
+          url: win.webContents.getURL().slice(0, 100),
+          config: (registrar as any).cfg
+        })
+      }
+    }
+
+    return { success: true, windows }
+  })
+
+  // 显示浏览器注册窗口
+  ipcMain.handle('registration-show-browser-window', async (_event, taskId: string) => {
+    const registrar = browserRegistrarPool.get(taskId)
+    if (!registrar) {
+      return { success: false, error: 'Task not found' }
+    }
+
+    const win = (registrar as any).win as BrowserWindow | null
+    if (win && !win.isDestroyed()) {
+      win.show()
+      win.focus()
+      return { success: true }
+    }
+
+    return { success: false, error: 'Window not found' }
+  })
+
+  // 隐藏浏览器注册窗口
+  ipcMain.handle('registration-hide-browser-window', async (_event, taskId: string) => {
+    const registrar = browserRegistrarPool.get(taskId)
+    if (!registrar) {
+      return { success: false, error: 'Task not found' }
+    }
+
+    const win = (registrar as any).win as BrowserWindow | null
+    if (win && !win.isDestroyed()) {
+      win.hide()
+      return { success: true }
+    }
+
+    return { success: false, error: 'Window not found' }
+  })
+
+  // 重启浏览器注册任务（使用相同的邮箱和代理）
+  ipcMain.handle('registration-restart-browser-task', async (_event, taskId: string) => {
+    const oldRegistrar = browserRegistrarPool.get(taskId)
+    if (!oldRegistrar) {
+      return { success: false, error: 'Task not found' }
+    }
+
+    // 取消旧任务
+    oldRegistrar.abort()
+    await oldRegistrar.destroy()
+    browserRegistrarPool.delete(taskId)
+
+    // 使用相同的配置启动新任务
+    const config = (oldRegistrar as any).cfg as BrowserRegistrationConfig
+    const newTaskId = `browser-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`
+    const logPrefix = `[#${newTaskId.slice(0, 12)}] `
+
+    const newRegistrar = new BrowserRegistrar(
+      { ...config, taskId: newTaskId },
+      (msg) => sendLog(`${logPrefix}${msg}`, newTaskId)
+    )
+    browserRegistrarPool.set(newTaskId, newRegistrar)
+
+    // 启动新任务（不等待完成）
+    newRegistrar.run()
+      .then((result) => {
+        browserRegistrarPool.delete(newTaskId)
+        const win = getMainWindow()
+        if (win && !win.isDestroyed()) {
+          win.webContents.send('registration-complete', result)
+        }
+      })
+      .catch((err) => {
+        browserRegistrarPool.delete(newTaskId)
+        const errMsg = err instanceof Error ? err.message : String(err)
+        console.error(`[Browser] Task ${newTaskId} failed:`, errMsg)
+      })
+      .finally(() => {
+        newRegistrar.destroy()
+      })
+
+    return { success: true, newTaskId }
+  })
+
   // ============ 浏览器模式注册 ============
 
   ipcMain.handle('registration-start-browser', async (_event, config: BrowserRegistrationConfig) => {

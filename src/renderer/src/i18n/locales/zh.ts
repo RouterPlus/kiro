@@ -53,6 +53,7 @@ const zh = {
     diagnose: '一键诊断',
     configSync: '配置同步',
     register: '注册',
+    browserWindows: '浏览器窗口',
     subscription: '批量订阅',
     logs: '系统日志',
     settings: '设置',

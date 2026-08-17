@@ -1,4 +1,4 @@
-import { app, shell, BrowserWindow, ipcMain, dialog, globalShortcut } from 'electron'
+import { app, shell, BrowserWindow, ipcMain, dialog, globalShortcut, screen } from 'electron'
 import { autoUpdater } from 'electron-updater'
 import * as machineIdModule from './machineId'
 import { join } from 'path'
@@ -459,6 +459,60 @@ async function importRegisteredAccount(result: {
     expiresAt: now + 3600000
   })
   mainWindow?.webContents.send('accounts-data-updated', accountData)
+
+  // Automatically refresh token after import to ensure the account is active in proxy
+  if (result.refreshToken && result.clientId && result.clientSecret) {
+    console.log(`[ImportAccount] Auto-refreshing token for ${result.email}...`)
+    try {
+      const refreshResult = await refreshTokenByMethod(
+        result.refreshToken,
+        result.clientId,
+        result.clientSecret,
+        result.region || 'us-east-1',
+        'IdC'
+      )
+
+      if (refreshResult.success && refreshResult.accessToken) {
+        // Update store with fresh token
+        const updatedAccountData = store?.get('accountData') as
+          | { accounts?: Record<string, any> }
+          | undefined
+        if (updatedAccountData?.accounts?.[id]) {
+          updatedAccountData.accounts[id].credentials.accessToken = refreshResult.accessToken
+          updatedAccountData.accounts[id].credentials.expiresAt =
+            now + (refreshResult.expiresIn || 3600) * 1000
+          if (refreshResult.refreshToken) {
+            updatedAccountData.accounts[id].credentials.refreshToken = refreshResult.refreshToken
+          }
+          store?.set('accountData', updatedAccountData)
+          lastSavedData = updatedAccountData
+        }
+
+        // Update proxy pool with fresh token
+        const proxyAccount = proxyServer?.getAccountPool().getAccount(id)
+        if (proxyAccount) {
+          proxyAccount.accessToken = refreshResult.accessToken
+          proxyAccount.expiresAt = now + (refreshResult.expiresIn || 3600) * 1000
+          if (refreshResult.refreshToken) {
+            proxyAccount.refreshToken = refreshResult.refreshToken
+          }
+          proxyServer?.getAccountPool().addAccount(proxyAccount)
+        }
+
+        console.log(`[ImportAccount] Token refreshed successfully for ${result.email}`)
+        mainWindow?.webContents.send('accounts-data-updated', updatedAccountData)
+      } else {
+        console.warn(
+          `[ImportAccount] Token refresh failed for ${result.email}: ${refreshResult.error || 'Unknown error'}`
+        )
+      }
+    } catch (error) {
+      console.error(
+        `[ImportAccount] Token refresh error for ${result.email}:`,
+        error instanceof Error ? error.message : String(error)
+      )
+    }
+  }
 }
 
 async function runBrowserReplacementRegistration(
@@ -2048,10 +2102,40 @@ function createWindow(): void {
     }
   })
 
+  // Keep window at 100% screen size even when client resizes
+  // This is useful for xpra where the client screen size may change
+  let resizeTimer: NodeJS.Timeout | null = null
+  mainWindow.on('resize', () => {
+    if (!mainWindow || mainWindow.isDestroyed()) return
+
+    // Debounce resize events to avoid excessive calls
+    if (resizeTimer) clearTimeout(resizeTimer)
+    resizeTimer = setTimeout(() => {
+      if (!mainWindow || mainWindow.isDestroyed()) return
+
+      const display = screen.getPrimaryDisplay()
+      const { width, height } = display.workAreaSize
+
+      // Only resize if window is not already at full screen dimensions
+      const [currentWidth, currentHeight] = mainWindow.getSize()
+      if (currentWidth !== width || currentHeight !== height) {
+        console.log(`[Window] Resizing to match screen: ${width}x${height}`)
+        mainWindow.setSize(width, height)
+        mainWindow.center()
+      }
+    }, 500)
+  })
+
   mainWindow.on('ready-to-show', () => {
     // 设置带版本号的标题（HTML 加载后会覆盖初始标题）
     mainWindow?.setTitle(`Kiro 账号管理器 v${app.getVersion()}`)
     mainWindow?.show()
+
+    // Ensure window is at full screen size on startup
+    const display = screen.getPrimaryDisplay()
+    const { width, height } = display.workAreaSize
+    mainWindow?.setSize(width, height)
+    mainWindow?.center()
 
     // 检查代理服务自启动配置
     setTimeout(async () => {
@@ -4494,6 +4578,61 @@ app.whenReady().then(async () => {
       }
     }
   )
+
+  // IPC: Generate unique machine ID for new account
+  ipcMain.handle('generate-account-machine-id', async () => {
+    const newMachineId = crypto.randomUUID()
+    console.log(`[IPC] Generated new machine ID: ${newMachineId}`)
+    return { success: true, machineId: newMachineId }
+  })
+
+  // IPC: Auto-sync account to proxy pool and fetch models
+  ipcMain.handle('auto-sync-account', async (_event, accountId: string) => {
+    try {
+      if (!store || !proxyServer) {
+        return { success: false, error: 'Store or proxy server not initialized' }
+      }
+
+      const accountData = store.get('accountData') as { accounts?: Record<string, any> } | undefined
+      const account = accountData?.accounts?.[accountId]
+
+      if (!account) {
+        return { success: false, error: 'Account not found' }
+      }
+
+      // Convert to ProxyAccount format
+      const proxyAccount: ProxyAccount = {
+        id: account.id,
+        email: account.email,
+        accessToken: account.credentials.accessToken,
+        refreshToken: account.credentials.refreshToken,
+        clientId: account.credentials.clientId,
+        clientSecret: account.credentials.clientSecret,
+        region: account.credentials.region || 'us-east-1',
+        authMethod: account.credentials.authMethod || 'IdC',
+        provider: account.credentials.provider || 'BuilderId',
+        expiresAt: account.credentials.expiresAt || Date.now() + 3600000,
+        machineId: account.machineId
+      }
+
+      // Add to account pool
+      proxyServer.getAccountPool().addAccount(proxyAccount)
+      console.log(`[AutoSync] Added account to pool: ${account.email}`)
+
+      // Fetch models for this account
+      try {
+        const models = await fetchKiroModels(proxyAccount)
+        console.log(`[AutoSync] Fetched ${models.length} models for ${account.email}`)
+        return { success: true, modelCount: models.length }
+      } catch (error) {
+        console.warn(`[AutoSync] Failed to fetch models: ${error}`)
+        return { success: true, modelCount: 0, warning: 'Models fetch failed' }
+      }
+    } catch (error) {
+      console.error('[AutoSync] Error:', error)
+      return { success: false, error: error instanceof Error ? error.message : 'Auto-sync failed' }
+    }
+  })
 
   // IPC: 获取本地 SSO 缓存中当前使用的账号信息
   ipcMain.handle('get-local-active-account', async () => {
@@ -7414,6 +7553,18 @@ app.whenReady().then(async () => {
   }
 
   createWindow()
+
+  // Listen for display changes (e.g., xpra client screen resize)
+  screen.on('display-metrics-changed', (_event, display) => {
+    if (!mainWindow || mainWindow.isDestroyed()) return
+    const primaryDisplay = screen.getPrimaryDisplay()
+    if (display.id === primaryDisplay.id) {
+      const { width, height } = primaryDisplay.workAreaSize
+      console.log(`[Window] Display metrics changed, resizing to: ${width}x${height}`)
+      mainWindow.setSize(width, height)
+      mainWindow.center()
+    }
+  })
 
   app.on('activate', function () {
     // On macOS it's common to re-create a window in the app when the

@@ -206,9 +206,16 @@ export function AddAccountDialog({ isOpen, onClose }: AddAccountDialogProps): Re
           return
         }
         
+        // 生成唯一的机器 ID
+        const machineIdResult = await window.api.generateAccountMachineId()
+        if (!machineIdResult.success || !machineIdResult.machineId) {
+          setError(isEn ? 'Failed to generate machine ID' : '生成机器 ID 失败')
+          return
+        }
+
         // 添加账号
         const now = Date.now()
-        addAccount({
+        const newAccount = {
           email,
           userId,
           nickname: email ? email.split('@')[0] : undefined,
@@ -238,8 +245,8 @@ export function AddAccountDialog({ isOpen, onClose }: AddAccountDialogProps): Re
           usage: {
             current: result.data.usage.current,
             limit: result.data.usage.limit,
-            percentUsed: result.data.usage.limit > 0 
-              ? result.data.usage.current / result.data.usage.limit 
+            percentUsed: result.data.usage.limit > 0
+              ? result.data.usage.current / result.data.usage.limit
               : 0,
             lastUpdated: now,
             baseLimit: result.data.usage.baseLimit,
@@ -251,11 +258,22 @@ export function AddAccountDialog({ isOpen, onClose }: AddAccountDialogProps): Re
             nextResetDate: result.data.usage.nextResetDate,
             resourceDetail: result.data.usage.resourceDetail
           },
+          machineId: machineIdResult.machineId,
           groupId: undefined,
           tags: [],
-          status: 'active',
+          status: 'active' as const,
           lastUsedAt: now
-        })
+        }
+
+        const accountId = addAccount(newAccount)
+
+        // 自动同步账号到代理池并刷新模型
+        const syncResult = await window.api.autoSyncAccount(accountId)
+        if (!syncResult.success) {
+          console.warn('[AddAccountDialog] Auto-sync failed:', syncResult.error)
+        } else {
+          console.log('[AddAccountDialog] Auto-sync successful, fetched', syncResult.modelCount, 'models')
+        }
 
         resetForm()
         onClose()
@@ -539,13 +557,22 @@ export function AddAccountDialog({ isOpen, onClose }: AddAccountDialogProps): Re
             return
           }
           
+          // 生成唯一的机器 ID
+          const machineIdResult = await window.api.generateAccountMachineId()
+          if (!machineIdResult.success || !machineIdResult.machineId) {
+            importResult.failed++
+            importResult.failedIndices.push(index)
+            importResult.errors.push(`#${index + 1}: ${isEn ? 'Failed to generate machine ID' : '生成机器 ID 失败'}`)
+            return
+          }
+
           // 添加账号
           const now = Date.now()
-          addAccount({
+          const newAccount = {
             email: email || '',
             userId: userId || '',
             nickname: email ? email.split('@')[0] : undefined,
-            idp: 'BuilderId',
+            idp: 'BuilderId' as const,
             credentials: {
               accessToken: result.data.accessToken,
               csrfToken: '',
@@ -566,8 +593,8 @@ export function AddAccountDialog({ isOpen, onClose }: AddAccountDialogProps): Re
             usage: {
               current: result.data.usage?.current || 0,
               limit: result.data.usage?.limit || 0,
-              percentUsed: (result.data.usage?.limit || 0) > 0 
-                ? (result.data.usage?.current || 0) / (result.data.usage?.limit || 1) 
+              percentUsed: (result.data.usage?.limit || 0) > 0
+                ? (result.data.usage?.current || 0) / (result.data.usage?.limit || 1)
                 : 0,
               lastUpdated: now,
               baseLimit: result.data.usage?.baseLimit,
@@ -579,12 +606,23 @@ export function AddAccountDialog({ isOpen, onClose }: AddAccountDialogProps): Re
               nextResetDate: result.data.usage?.nextResetDate,
               resourceDetail: result.data.usage?.resourceDetail
             },
+            machineId: machineIdResult.machineId,
             groupId: undefined,
             tags: [],
-            status: 'active',
+            status: 'active' as const,
             lastUsedAt: now
-          })
-          
+          }
+
+          const accountId = addAccount(newAccount)
+
+          // 自动同步账号到代理池并刷新模型
+          const syncResult = await window.api.autoSyncAccount(accountId)
+          if (!syncResult.success) {
+            console.warn('[AddAccountDialog] Auto-sync failed for', email, ':', syncResult.error)
+          } else {
+            console.log('[AddAccountDialog] Auto-sync successful for', email, ', fetched', syncResult.modelCount, 'models')
+          }
+
           importResult.success++
         } else {
           importResult.failed++
@@ -752,8 +790,17 @@ export function AddAccountDialog({ isOpen, onClose }: AddAccountDialogProps): Re
           // GitHub 和 Google 使用 social 认证方式，BuilderId 和 Enterprise 使用 IdC
           const authMethod = cred.authMethod || ((provider === 'BuilderId' || provider === 'Enterprise') ? 'IdC' : 'social')
           
+          // 生成唯一的机器 ID
+          const machineIdResult = await window.api.generateAccountMachineId()
+          if (!machineIdResult.success || !machineIdResult.machineId) {
+            importResult.failed++
+            importResult.failedIndices.push(index)
+            importResult.errors.push(`#${index + 1}: ${isEn ? 'Failed to generate machine ID' : '生成机器 ID 失败'}`)
+            return
+          }
+
           const now = Date.now()
-          addAccount({
+          const newAccount = {
             email,
             password: cred.password,
             userId,
@@ -782,8 +829,8 @@ export function AddAccountDialog({ isOpen, onClose }: AddAccountDialogProps): Re
             usage: {
               current: result.data.usage.current,
               limit: result.data.usage.limit,
-              percentUsed: result.data.usage.limit > 0 
-                ? result.data.usage.current / result.data.usage.limit 
+              percentUsed: result.data.usage.limit > 0
+                ? result.data.usage.current / result.data.usage.limit
                 : 0,
               lastUpdated: now,
               baseLimit: result.data.usage.baseLimit,
@@ -795,11 +842,22 @@ export function AddAccountDialog({ isOpen, onClose }: AddAccountDialogProps): Re
               nextResetDate: result.data.usage.nextResetDate,
               resourceDetail: result.data.usage.resourceDetail
             },
+            machineId: machineIdResult.machineId,
             groupId: undefined,
             tags: [],
-            status: 'active',
+            status: 'active' as const,
             lastUsedAt: now
-          })
+          }
+
+          const accountId = addAccount(newAccount)
+
+          // 自动同步账号到代理池并刷新模型
+          const syncResult = await window.api.autoSyncAccount(accountId)
+          if (!syncResult.success) {
+            console.warn('[AddAccountDialog] Auto-sync failed for', email, ':', syncResult.error)
+          } else {
+            console.log('[AddAccountDialog] Auto-sync successful for', email, ', fetched', syncResult.modelCount, 'models')
+          }
           
           importResult.success++
         } else {
@@ -897,9 +955,16 @@ export function AddAccountDialog({ isOpen, onClose }: AddAccountDialogProps): Re
           return
         }
         
+        // 生成唯一的机器 ID
+        const machineIdResult = await window.api.generateAccountMachineId()
+        if (!machineIdResult.success || !machineIdResult.machineId) {
+          setError(isEn ? 'Failed to generate machine ID' : '生成机器 ID 失败')
+          return
+        }
+
         // 直接添加账号
         const now = Date.now()
-        addAccount({
+        const newAccount = {
           email,
           userId,
           nickname: email ? email.split('@')[0] : undefined,
@@ -927,8 +992,8 @@ export function AddAccountDialog({ isOpen, onClose }: AddAccountDialogProps): Re
           usage: {
             current: result.data.usage.current,
             limit: result.data.usage.limit,
-            percentUsed: result.data.usage.limit > 0 
-              ? result.data.usage.current / result.data.usage.limit 
+            percentUsed: result.data.usage.limit > 0
+              ? result.data.usage.current / result.data.usage.limit
               : 0,
             lastUpdated: now,
             baseLimit: result.data.usage.baseLimit,
@@ -940,11 +1005,22 @@ export function AddAccountDialog({ isOpen, onClose }: AddAccountDialogProps): Re
             nextResetDate: result.data.usage.nextResetDate,
             resourceDetail: result.data.usage.resourceDetail
           },
+          machineId: machineIdResult.machineId,
           groupId: undefined,
           tags: [],
-          status: 'active',
+          status: 'active' as const,
           lastUsedAt: now
-        })
+        }
+
+        const accountId = addAccount(newAccount)
+
+        // 自动同步账号到代理池并刷新模型
+        const syncResult = await window.api.autoSyncAccount(accountId)
+        if (!syncResult.success) {
+          console.warn('[AddAccountDialog] Auto-sync failed:', syncResult.error)
+        } else {
+          console.log('[AddAccountDialog] Auto-sync successful, fetched', syncResult.modelCount, 'models')
+        }
 
         resetForm()
         onClose()

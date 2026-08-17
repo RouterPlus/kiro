@@ -53,6 +53,7 @@ const en = {
     diagnose: 'Diagnostics',
     configSync: 'Config Sync',
     register: 'Register',
+    browserWindows: 'Browser Windows',
     subscription: 'Subscription',
     logs: 'Logs',
     settings: 'Settings',

@@ -15,7 +15,8 @@ import {
   ProxyPoolPage,
   WebhooksPage,
   DiagnosePage,
-  ConfigSyncPage
+  ConfigSyncPage,
+  BrowserWindowsPage
 } from './components/pages'
 import { UpdateDialog } from './components/UpdateDialog'
 import { CloseConfirmDialog } from './components/CloseConfirmDialog'
@@ -290,6 +291,8 @@ function App(): React.JSX.Element {
         return <ProxyPoolPage />
       case 'register':
         return <RegisterPage />
+      case 'browserWindows':
+        return <BrowserWindowsPage />
       case 'subscription':
         return <SubscriptionPage />
       case 'webhooks':

@@ -398,7 +398,7 @@ export class BrowserRegistrar {
     const win = new BrowserWindow({
       width: 1024,
       height: 768,
-      show: true,
+      show: false, // Hidden by default, can be shown via UI
       title: 'Kiro Registration',
       webPreferences: {
         session: ses,
@@ -892,37 +892,65 @@ export class BrowserRegistrar {
 
     this.log(`[Browser] Found ${pwdCount} password field(s)`)
 
-    // Fill each password field sequentially with delays
-    for (let i = 0; i < pwdCount; i++) {
-      const fillOk = await win.webContents
-        .executeJavaScript(
-          `
-        (function() {
-          const inputs = Array.from(document.querySelectorAll('input[type="password"]')).filter(el => !!el.offsetParent);
-          if (${i} >= inputs.length) return false;
-          const el = inputs[${i}];
-          el.focus();
-          const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set;
-          if (setter) setter.call(el, ${JSON.stringify(password)});
-          else el.value = ${JSON.stringify(password)};
-          el.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: ${JSON.stringify(password)} }));
-          el.dispatchEvent(new Event('change', { bubbles: true }));
-          el.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true, key: 'a' }));
-          el.blur();
-          return true;
-        })()
-      `
-        )
-        .catch(() => false)
+    // Get all password fields once before filling
+    const pwdFields = await win.webContents
+      .executeJavaScript(
+        `
+      (function() {
+        const inputs = Array.from(document.querySelectorAll('input[type="password"]')).filter(el => !!el.offsetParent);
+        return inputs.map((el, idx) => {
+          const id = el.id || '';
+          const name = el.name || '';
+          const placeholder = el.placeholder || '';
+          const ariaLabel = el.getAttribute('aria-label') || '';
+          // Generate a stable selector for this specific field
+          let selector = 'input[type="password"]';
+          if (id) selector = 'input[type="password"]#' + id;
+          else if (name) selector = 'input[type="password"][name="' + name + '"]';
+          else if (placeholder) selector = 'input[type="password"][placeholder="' + placeholder + '"]';
+          else if (ariaLabel) selector = 'input[type="password"][aria-label="' + ariaLabel + '"]';
+          return { index: idx, selector };
+        });
+      })()
+    `
+      )
+      .catch(() => [])
 
-      if (!fillOk) {
-        // Fallback: use typeInto for the first field only
-        if (i === 0) await typeInto(win, 'input[type="password"]', password)
+    this.log(`[Browser] Password field selectors: ${JSON.stringify(pwdFields)}`)
+
+    // Fill each password field using character-by-character typing for better React compatibility
+    for (let i = 0; i < pwdFields.length; i++) {
+      const field = pwdFields[i]
+      this.log(`[Browser] Filling password field ${i + 1}/${pwdFields.length}: ${field.selector}`)
+
+      const typed = await typeInto(win, field.selector, password, 15000)
+      if (!typed) {
+        this.log(`[Browser] Warning: typeInto failed for field ${i + 1}, trying direct fill`)
+        // Fallback to direct value assignment
+        await win.webContents
+          .executeJavaScript(
+            `
+          (function() {
+            const el = document.querySelector(${JSON.stringify(field.selector)});
+            if (!el) return false;
+            el.focus();
+            const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set;
+            if (setter) setter.call(el, ${JSON.stringify(password)});
+            else el.value = ${JSON.stringify(password)};
+            el.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: ${JSON.stringify(password)} }));
+            el.dispatchEvent(new Event('change', { bubbles: true }));
+            el.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true, key: 'a' }));
+            el.blur();
+            return true;
+          })()
+        `
+          )
+          .catch(() => false)
       }
 
       // Add delay between fields to allow React state updates
-      if (i < pwdCount - 1) {
-        await randomDelay(300, 600)
+      if (i < pwdFields.length - 1) {
+        await randomDelay(500, 800)
       }
     }
 

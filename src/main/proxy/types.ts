@@ -326,7 +326,7 @@ export interface KiroUserInputMessage {
 
 export interface KiroImage {
   format: string
-  source: { bytes: string }
+  source: { bytes: string } | { url: string }
 }
 
 export interface KiroDocument {

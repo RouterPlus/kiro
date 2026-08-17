@@ -340,7 +340,13 @@ function stripMessageAttachments(
   const documentCount = message.documents?.length ?? 0
   if (imageCount === 0 && documentCount === 0) return 0
   const approxBytes =
-    (message.images ?? []).reduce((sum, image) => sum + (image.source?.bytes?.length ?? 0), 0) +
+    (message.images ?? []).reduce((sum, image) => {
+      if ('bytes' in image.source) {
+        return sum + (image.source.bytes?.length ?? 0)
+      }
+      // URL-based images: estimate ~50 chars for the URL
+      return sum + 50
+    }, 0) +
     (message.documents ?? []).reduce(
       (sum, document) => sum + (document.source?.bytes?.length ?? 0),
       0

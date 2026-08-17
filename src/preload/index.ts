@@ -237,6 +237,21 @@ const api = {
     return ipcRenderer.invoke('verify-account-credentials', credentials)
   },
 
+  // 生成唯一的机器 ID（用于新账号）
+  generateAccountMachineId: (): Promise<{ success: boolean; machineId?: string }> => {
+    return ipcRenderer.invoke('generate-account-machine-id')
+  },
+
+  // 自动同步账号到代理池并刷新模型列表
+  autoSyncAccount: (accountId: string): Promise<{
+    success: boolean
+    modelCount?: number
+    warning?: string
+    error?: string
+  }> => {
+    return ipcRenderer.invoke('auto-sync-account', accountId)
+  },
+
   // 获取本地 SSO 缓存中当前使用的账号信息
   getLocalActiveAccount: (): Promise<{
     success: boolean
@@ -1742,6 +1757,42 @@ const api = {
   // 取消浏览器注册
   registrationCancelBrowser: (taskId?: string): Promise<{ success: boolean }> => {
     return ipcRenderer.invoke('registration-cancel-browser', taskId)
+  },
+
+  // 获取所有浏览器注册窗口状态
+  registrationGetBrowserWindows: (): Promise<{
+    success: boolean
+    windows: Array<{
+      taskId: string
+      email: string
+      visible: boolean
+      title: string
+      url: string
+      config: Record<string, unknown>
+    }>
+  }> => {
+    return ipcRenderer.invoke('registration-get-browser-windows')
+  },
+
+  // 显示浏览器注册窗口
+  registrationShowBrowserWindow: (
+    taskId: string
+  ): Promise<{ success: boolean; error?: string }> => {
+    return ipcRenderer.invoke('registration-show-browser-window', taskId)
+  },
+
+  // 隐藏浏览器注册窗口
+  registrationHideBrowserWindow: (
+    taskId: string
+  ): Promise<{ success: boolean; error?: string }> => {
+    return ipcRenderer.invoke('registration-hide-browser-window', taskId)
+  },
+
+  // 重启浏览器注册任务
+  registrationRestartBrowserTask: (
+    taskId: string
+  ): Promise<{ success: boolean; newTaskId?: string; error?: string }> => {
+    return ipcRenderer.invoke('registration-restart-browser-task', taskId)
   },
 
   // 手动模式 Phase1: 初始化 OIDC + 设备授权
