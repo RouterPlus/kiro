@@ -53,6 +53,13 @@ import {
   type TraySettings,
   defaultTraySettings
 } from './tray'
+import {
+  initMcpServer,
+  stopMcpServer,
+  getMcpServerStatus,
+  getMcpConfig,
+  updateMcpConfig
+} from './mcp'
 
 // ============ 自动更新配置 ============
 autoUpdater.autoDownload = false
@@ -2077,6 +2084,9 @@ function initTray(): void {
     getSessionStats: () => {
       const server = initProxyServer()
       return server.getSessionStats()
+    },
+    getMcpStatus: () => {
+      return getMcpServerStatus()
     }
   })
 
@@ -2461,6 +2471,34 @@ app.whenReady().then(async () => {
   // IPC: 更新托盘语言
   ipcMain.on('update-tray-language', (_event, language: 'en' | 'zh') => {
     updateTrayLanguage(language)
+  })
+
+  // ============ MCP 相关 IPC ============
+
+  // IPC: 获取 MCP 服务器状态
+  ipcMain.handle('get-mcp-status', () => {
+    return getMcpServerStatus()
+  })
+
+  // IPC: 获取 MCP 配置
+  ipcMain.handle('get-mcp-config', async () => {
+    try {
+      const config = await getMcpConfig()
+      return { success: true, data: config }
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : 'Unknown error' }
+    }
+  })
+
+  // IPC: 更新 MCP 配置
+  ipcMain.handle('update-mcp-config', async (_event, updates) => {
+    try {
+      await updateMcpConfig(updates)
+      updateTrayMenu() // Refresh tray to show updated status
+      return { success: true }
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : 'Unknown error' }
+    }
   })
 
   // IPC: 关闭确认对话框响应
@@ -7554,6 +7592,25 @@ app.whenReady().then(async () => {
 
   createWindow()
 
+  // Initialize MCP server
+  try {
+    await initMcpServer({
+      getProxyServer: () => proxyServer,
+      updateTrayMenu: () => updateTrayMenu(),
+      store: store!,
+      getCurrentAccount: () => currentProxyAccount,
+      getAccountData: () => {
+        const accountData = store?.get('accountData') as { accounts?: Record<string, any> } | undefined
+        return accountData || null
+      },
+      fetchKiroModels: fetchKiroModels,
+      getProxyLogStore: () => proxyLogStore
+    })
+    console.log('[MCP] Server initialized')
+  } catch (error) {
+    console.error('[MCP] Failed to initialize server:', error)
+  }
+
   // Listen for display changes (e.g., xpra client screen resize)
   screen.on('display-metrics-changed', (_event, display) => {
     if (!mainWindow || mainWindow.isDestroyed()) return
@@ -7653,6 +7710,13 @@ app.on('will-quit', async (event) => {
         await proxyLogStore.flushSaveNow()
       } catch (err) {
         console.error('[Exit] Failed to flush proxy logs:', err)
+      }
+      // Shutdown MCP server
+      try {
+        await stopMcpServer()
+        console.log('[Exit] MCP server stopped')
+      } catch (err) {
+        console.error('[Exit] Failed to stop MCP server:', err)
       }
       console.log('[Exit] Data saved successfully')
     } catch (error) {

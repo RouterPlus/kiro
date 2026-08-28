@@ -106,6 +106,7 @@ interface TrayCallbacks {
   getAccountList: () => TrayAccountInfo[]
   getProxyStats: () => { totalRequests: number; successRequests: number; failedRequests: number }
   getSessionStats: () => { totalRequests: number; successRequests: number; failedRequests: number; startTime: number }
+  getMcpStatus?: () => { running: boolean; initialized: boolean }
 }
 
 let callbacks: TrayCallbacks | null = null
@@ -165,6 +166,19 @@ function buildTrayMenu(): Menu {
         await callbacks?.onToggleProxy()
         updateTrayMenu()
       }
+    })
+    menuTemplate.push({ type: 'separator' })
+  }
+
+  // MCP Server status
+  if (callbacks?.getMcpStatus) {
+    const mcpStatus = callbacks.getMcpStatus()
+    menuTemplate.push({
+      label: mcpStatus.initialized
+        ? (isEn ? `MCP Server: ${mcpStatus.running ? 'Running' : 'Stopped'}` : `MCP 服务: ${mcpStatus.running ? '运行中' : '已停止'}`)
+        : (isEn ? 'MCP Server: Not Initialized' : 'MCP 服务: 未初始化'),
+      icon: getStatusIcon(mcpStatus.running),
+      enabled: false
     })
     menuTemplate.push({ type: 'separator' })
   }

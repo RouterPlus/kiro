@@ -210,7 +210,63 @@ function App(): React.JSX.Element {
           update.lastError || 'Account temporarily suspended or locked by AWS/Kiro'
         updates.lastCheckedAt = Date.now()
       }
-      if (Object.keys(updates).length > 0) updateAccount(update.id, updates as any)
+      if (Object.keys(updates).length > 0) {
+        updateAccount(update.id, updates as any)
+
+        // 如果账号被封禁，立即同步账号池以移除该账号
+        if (update.suspended) {
+          console.log('[App] Account suspended, syncing to proxy pool to remove it')
+          // 延迟 100ms 确保 store 已更新
+          setTimeout(() => {
+            window.api.proxyGetStatus().then((status) => {
+              if (status.running) {
+                const allAccounts = useAccountsStore.getState().accounts
+                const isSuspendedAccount = (acc: { lastError?: string }) => {
+                  const lowerError = acc.lastError?.toLowerCase() || ''
+                  return (
+                    lowerError.includes('accountsuspendedexception') ||
+                    lowerError.includes('account suspended') ||
+                    lowerError.includes('temporarily suspended') ||
+                    lowerError.includes('suspended') ||
+                    lowerError.includes('locked') ||
+                    lowerError.includes('security precaution') ||
+                    lowerError.includes('temporarily_suspended') ||
+                    lowerError.includes('账户已封禁') ||
+                    lowerError.includes('已封禁') ||
+                    /\b423\b/.test(lowerError)
+                  )
+                }
+                const proxyAccounts = Array.from(allAccounts.values())
+                  .filter(
+                    (acc) =>
+                      acc.status === 'active' &&
+                      acc.credentials?.accessToken &&
+                      !isSuspendedAccount(acc)
+                  )
+                  .map((acc) => ({
+                    id: acc.id,
+                    email: acc.email,
+                    accessToken: acc.credentials.accessToken,
+                    refreshToken: acc.credentials?.refreshToken,
+                    profileArn: acc.profileArn,
+                    expiresAt: acc.credentials?.expiresAt,
+                    machineId: acc.machineId,
+                    clientId: acc.credentials?.clientId,
+                    clientSecret: acc.credentials?.clientSecret,
+                    region: acc.credentials?.region || 'us-east-1',
+                    authMethod: acc.credentials?.authMethod,
+                    provider: acc.credentials?.provider || acc.idp
+                  }))
+                window.api.proxySyncAccounts(proxyAccounts).then((result) => {
+                  if (result.success) {
+                    console.log('[App] Suspended account removed from proxy pool')
+                  }
+                })
+              }
+            })
+          }, 100)
+        }
+      }
     })
     return () => {
       unsubscribe?.()

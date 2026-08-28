@@ -485,12 +485,60 @@ export function ProxyPanel() {
     }
   }, [fetchStatus, loadAvailableModels])
 
-  // 账号变化时同步
+  // 账号变化时自动同步到代理池
   useEffect(() => {
-    if (isRunning) {
-      syncAccounts()
+    if (!isRunning) return
+
+    const syncAccountsToPool = async () => {
+      try {
+        const isSuspendedAccount = (acc: { lastError?: string }) => {
+          const lowerError = acc.lastError?.toLowerCase() || ''
+          return (
+            lowerError.includes('accountsuspendedexception') ||
+            lowerError.includes('account suspended') ||
+            lowerError.includes('temporarily suspended') ||
+            lowerError.includes('suspended') ||
+            lowerError.includes('locked') ||
+            lowerError.includes('security precaution') ||
+            lowerError.includes('temporarily_suspended') ||
+            lowerError.includes('账户已封禁') ||
+            lowerError.includes('已封禁') ||
+            /\b423\b/.test(lowerError)
+          )
+        }
+        const proxyAccounts = Array.from(accounts.values())
+          .filter(
+            (acc) =>
+              acc.status === 'active' && acc.credentials?.accessToken && !isSuspendedAccount(acc)
+          )
+          .map((acc) => ({
+            id: acc.id,
+            email: acc.email,
+            accessToken: acc.credentials.accessToken,
+            refreshToken: acc.credentials?.refreshToken,
+            profileArn: acc.profileArn,
+            expiresAt: acc.credentials?.expiresAt,
+            machineId: acc.machineId,
+            clientId: acc.credentials?.clientId,
+            clientSecret: acc.credentials?.clientSecret,
+            region: acc.credentials?.region || 'us-east-1',
+            authMethod: acc.credentials?.authMethod,
+            provider: acc.credentials?.provider || acc.idp
+          }))
+
+        const result = await window.api.proxySyncAccounts(proxyAccounts)
+        if (result.success) {
+          setAccountCount(result.accountCount || 0)
+          await fetchStatus()
+          console.log('[ProxyPanel] Auto-synced accounts to pool:', result.accountCount)
+        }
+      } catch (err) {
+        console.error('[ProxyPanel] Auto-sync failed:', err)
+      }
     }
-  }, [accounts, isRunning, syncAccounts])
+
+    syncAccountsToPool()
+  }, [accounts, isRunning, fetchStatus])
 
   // 实时更新运行时间
   const [uptime, setUptime] = useState(0)

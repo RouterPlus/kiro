@@ -3,6 +3,7 @@ import { Server as SocketIOServer } from 'socket.io';
 import { createServer } from 'http';
 import cors from 'cors';
 import { ipcMain } from 'electron';
+import { createMcpHttpHandler } from './mcp';
 
 export class WebServer {
   private app: Application;
@@ -41,6 +42,10 @@ export class WebServer {
     this.app.get('/health', (_req, res) => {
       res.json({ success: true, status: 'healthy', timestamp: Date.now() });
     });
+
+    // MCP endpoint for HTTP/SSE transport
+    this.app.post('/mcp', createMcpHttpHandler());
+    this.app.get('/mcp', createMcpHttpHandler());
 
     // Account endpoints - bridge to IPC
     this.app.get('/api/accounts', async (_req, res) => {

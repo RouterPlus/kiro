@@ -1284,6 +1284,36 @@ export const useAccountsStore = create<AccountsStore>()((set, get) => ({
         level: 'error',
         fields: { 邮箱: acc?.email || '-', 错误: error || '-' }
       })
+
+      // 立即同步到反代池以移除被封禁的账号
+      window.api.proxyGetStatus().then((proxyStatus) => {
+        if (proxyStatus.running) {
+          console.log('[Store] Account banned, syncing to proxy pool to remove it')
+          const allAccounts = get().accounts
+          const proxyAccounts = Array.from(allAccounts.values())
+            .filter(
+              (acc) =>
+                acc.status === 'active' &&
+                acc.credentials?.accessToken &&
+                !isBannedAccountError(acc.lastError)
+            )
+            .map((acc) => ({
+              id: acc.id,
+              email: acc.email,
+              accessToken: acc.credentials.accessToken,
+              refreshToken: acc.credentials?.refreshToken,
+              profileArn: acc.profileArn,
+              expiresAt: acc.credentials?.expiresAt,
+              machineId: acc.machineId,
+              clientId: acc.credentials?.clientId,
+              clientSecret: acc.credentials?.clientSecret,
+              region: acc.credentials?.region || 'us-east-1',
+              authMethod: acc.credentials?.authMethod,
+              provider: acc.credentials?.provider || acc.idp
+            }))
+          window.api.proxySyncAccounts(proxyAccounts)
+        }
+      })
     }
   },
 
@@ -2494,6 +2524,7 @@ export const useAccountsStore = create<AccountsStore>()((set, get) => ({
 
     if (!success) {
       console.log(`[BackgroundRefresh] Account ${id} refresh failed:`, error)
+      const isBanned = isBannedAccountError(error)
       // 更新账号错误状态
       set((state) => {
         const accounts = new Map(state.accounts)
@@ -2508,6 +2539,38 @@ export const useAccountsStore = create<AccountsStore>()((set, get) => ({
         }
         return { accounts }
       })
+
+      // 如果检测到账号被封禁，立即同步到反代池移除
+      if (isBanned) {
+        console.log(`[BackgroundRefresh] Account ${id} is banned, syncing to proxy pool`)
+        window.api.proxyGetStatus().then((proxyStatus) => {
+          if (proxyStatus.running) {
+            const allAccounts = get().accounts
+            const proxyAccounts = Array.from(allAccounts.values())
+              .filter(
+                (acc) =>
+                  acc.status === 'active' &&
+                  acc.credentials?.accessToken &&
+                  !isBannedAccountError(acc.lastError)
+              )
+              .map((acc) => ({
+                id: acc.id,
+                email: acc.email,
+                accessToken: acc.credentials.accessToken,
+                refreshToken: acc.credentials?.refreshToken,
+                profileArn: acc.profileArn,
+                expiresAt: acc.credentials?.expiresAt,
+                machineId: acc.machineId,
+                clientId: acc.credentials?.clientId,
+                clientSecret: acc.credentials?.clientSecret,
+                region: acc.credentials?.region || 'us-east-1',
+                authMethod: acc.credentials?.authMethod,
+                provider: acc.credentials?.provider || acc.idp
+              }))
+            window.api.proxySyncAccounts(proxyAccounts)
+          }
+        })
+      }
       return
     }
 
