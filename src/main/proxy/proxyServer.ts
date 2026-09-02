@@ -4689,7 +4689,7 @@ export class ProxyServer {
     return { allowed: true, retryAfterMs: 0 }
   }
 
-  /** 定期清理过期的限流桶 / 会话粘性条目（避免内存泄漏） */
+  /** 定期清理过期的限流桶 / 会话粘性条目 / 封禁和100%配额账号（避免内存泄漏） */
   private cleanupExpiredCaches(): void {
     const now = Date.now()
     // 限流桶过期 2 分钟
@@ -4704,6 +4704,9 @@ export class ProxyServer {
     if (this.auditLog.length > 200) {
       this.auditLog = this.auditLog.slice(-200)
     }
+    
+    // 清理封禁账号和100%配额账号
+    this.cleanupBannedAndExhaustedAccounts()
   }
 
   /**
@@ -4730,6 +4733,56 @@ export class ProxyServer {
   private rememberAffinity(sessionHint: string | undefined, accountId: string): void {
     if (!this.config.sessionAffinityEnabled || !sessionHint) return
     this.sessionAffinity.set(sessionHint, { accountId, lastAt: Date.now() })
+  }
+
+  /** 清理封禁账号和100%配额账号 */
+  private cleanupBannedAndExhaustedAccounts(): void {
+    const now = Date.now()
+    const allAccounts = this.accountPool.getAllAccounts()
+    let removedCount = 0
+
+    for (const account of allAccounts) {
+      let shouldRemove = false
+      let reason = ''
+
+      // 检查是否被封禁
+      if (account.suspended) {
+        shouldRemove = true
+        reason = 'suspended'
+      }
+      // 检查配额是否100%耗尽（且没有重置时间或重置时间在未来很远）
+      else if (account.quotaLimit && account.quotaLimit > 0) {
+        const quotaUsed = account.quotaUsed ?? 0
+        const percentUsed = (quotaUsed / account.quotaLimit) * 100
+        
+        if (percentUsed >= 100) {
+          // 如果有重置时间且在未来24小时内，保留账号
+          if (account.quotaResetAt && account.quotaResetAt > now && account.quotaResetAt - now < 24 * 60 * 60 * 1000) {
+            // 保留，会在重置时间后自动恢复
+          } else {
+            shouldRemove = true
+            reason = '100% quota exhausted'
+          }
+        }
+      }
+
+      if (shouldRemove) {
+        this.accountPool.removeAccount(account.id)
+        removedCount++
+        console.log(
+          `[ProxyServer] Auto-removed account ${account.email || account.id} from pool: ${reason}`
+        )
+        this.appendAuditLog('account_auto_removed', {
+          accountId: account.id,
+          email: account.email,
+          reason
+        })
+      }
+    }
+
+    if (removedCount > 0) {
+      console.log(`[ProxyServer] Auto-cleanup removed ${removedCount} account(s) from pool`)
+    }
   }
 
   /** P2-17 审计日志 */
