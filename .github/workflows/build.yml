@@ -36,7 +36,11 @@ jobs:
         id: extract_changelog
         run: |
           CHANGELOG_EN=$(awk '/^### v[0-9]+\.[0-9]+\.[0-9]+/{if(found) exit; found=1} found' README.md)
-          CHANGELOG_CN=$(awk '/^### v[0-9]+\.[0-9]+\.[0-9]+/{if(found) exit; found=1} found' README_CN.md)
+          if [ -f README_CN.md ]; then
+            CHANGELOG_CN=$(awk '/^### v[0-9]+\.[0-9]+\.[0-9]+/{if(found) exit; found=1} found' README_CN.md)
+          else
+            CHANGELOG_CN="$CHANGELOG_EN"
+          fi
 
           echo "changelog_en<<EOF" >> $GITHUB_OUTPUT
           echo "$CHANGELOG_EN" >> $GITHUB_OUTPUT
