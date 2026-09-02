@@ -90,7 +90,11 @@ export class AccountPool {
       isAvailable: account.isAvailable !== false,
       requestCount: existing?.requestCount || account.requestCount || 0,
       errorCount: existing?.errorCount || account.errorCount || 0,
-      lastUsed: existing?.lastUsed || account.lastUsed || 0
+      lastUsed: existing?.lastUsed || account.lastUsed || 0,
+      // Clear exhausted state on re-sync to give accounts a fresh start
+      quotaExhaustedAt: undefined,
+      quotaResetAt: undefined,
+      cooldownUntil: undefined
     })
     this.accountStats.set(account.id, {
       requests: 0,
