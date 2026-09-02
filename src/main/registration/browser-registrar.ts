@@ -903,13 +903,28 @@ export class BrowserRegistrar {
           const name = el.name || '';
           const placeholder = el.placeholder || '';
           const ariaLabel = el.getAttribute('aria-label') || '';
+          const label = (function() {
+            // Try to find associated label
+            if (el.id) {
+              const labelEl = document.querySelector('label[for="' + el.id + '"]');
+              if (labelEl) return labelEl.textContent?.toLowerCase() || '';
+            }
+            // Try parent label
+            const parentLabel = el.closest('label');
+            if (parentLabel) return parentLabel.textContent?.toLowerCase() || '';
+            // Try previous sibling label
+            const prevLabel = el.previousElementSibling?.matches('label') ? el.previousElementSibling : null;
+            if (prevLabel) return prevLabel.textContent?.toLowerCase() || '';
+            return '';
+          })();
+          
           // Generate a stable selector for this specific field
           let selector = 'input[type="password"]';
           if (id) selector = 'input[type="password"]#' + id;
           else if (name) selector = 'input[type="password"][name="' + name + '"]';
           else if (placeholder) selector = 'input[type="password"][placeholder="' + placeholder + '"]';
           else if (ariaLabel) selector = 'input[type="password"][aria-label="' + ariaLabel + '"]';
-          return { index: idx, selector };
+          return { index: idx, selector, placeholder, ariaLabel, label };
         });
       })()
     `
@@ -918,10 +933,22 @@ export class BrowserRegistrar {
 
     this.log(`[Browser] Password field selectors: ${JSON.stringify(pwdFields)}`)
 
+    // Sort password fields: "Password" field first, then "Confirm" field
+    // This ensures we fill in the correct order even if DOM order is different
+    const sortedFields = [...pwdFields].sort((a, b) => {
+      const aIsConfirm = a.label?.includes('confirm') || a.placeholder?.toLowerCase().includes('confirm') || a.ariaLabel?.toLowerCase().includes('confirm')
+      const bIsConfirm = b.label?.includes('confirm') || b.placeholder?.toLowerCase().includes('confirm') || b.ariaLabel?.toLowerCase().includes('confirm')
+      if (aIsConfirm && !bIsConfirm) return 1  // a is confirm, put it after
+      if (!aIsConfirm && bIsConfirm) return -1 // b is confirm, put a first
+      return a.index - b.index // maintain original order
+    })
+
+    this.log(`[Browser] Sorted password fields: ${JSON.stringify(sortedFields.map(f => ({ selector: f.selector, label: f.label, placeholder: f.placeholder })))}`)
+
     // Fill each password field using character-by-character typing for better React compatibility
-    for (let i = 0; i < pwdFields.length; i++) {
-      const field = pwdFields[i]
-      this.log(`[Browser] Filling password field ${i + 1}/${pwdFields.length}: ${field.selector}`)
+    for (let i = 0; i < sortedFields.length; i++) {
+      const field = sortedFields[i]
+      this.log(`[Browser] Filling password field ${i + 1}/${sortedFields.length}: ${field.selector}`)
 
       const typed = await typeInto(win, field.selector, password, 15000)
       if (!typed) {
@@ -949,8 +976,8 @@ export class BrowserRegistrar {
       }
 
       // Add delay between fields to allow React state updates
-      if (i < pwdFields.length - 1) {
-        await randomDelay(500, 800)
+      if (i < sortedFields.length - 1) {
+        await randomDelay(800, 1200)
       }
     }
 

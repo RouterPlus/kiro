@@ -485,7 +485,7 @@ export function ProxyPanel() {
     }
   }, [fetchStatus, loadAvailableModels])
 
-  // 账号变化时自动同步到代理池
+  // 账号变化时自动同步到代理池并刷新模型
   useEffect(() => {
     if (!isRunning) return
 
@@ -531,6 +531,11 @@ export function ProxyPanel() {
           setAccountCount(result.accountCount || 0)
           await fetchStatus()
           console.log('[ProxyPanel] Auto-synced accounts to pool:', result.accountCount)
+          
+          // Auto-refresh models after syncing accounts
+          await window.api.proxyRefreshModels()
+          await loadAvailableModels()
+          console.log('[ProxyPanel] Auto-refreshed models after account sync')
         }
       } catch (err) {
         console.error('[ProxyPanel] Auto-sync failed:', err)
@@ -538,7 +543,7 @@ export function ProxyPanel() {
     }
 
     syncAccountsToPool()
-  }, [accounts, isRunning, fetchStatus])
+  }, [accounts, isRunning, fetchStatus, loadAvailableModels])
 
   // 实时更新运行时间
   const [uptime, setUptime] = useState(0)
