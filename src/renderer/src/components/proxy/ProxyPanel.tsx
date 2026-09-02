@@ -318,6 +318,12 @@ export function ProxyPanel() {
       if (result.success) {
         setAccountCount(result.accountCount || 0)
         await fetchStatus()
+        
+        // Auto-refresh models after syncing accounts
+        await window.api.proxyRefreshModels()
+        await loadAvailableModels()
+        console.log('[ProxyPanel] Auto-refreshed models after account sync')
+        
         setSyncSuccess(true)
         setTimeout(() => setSyncSuccess(false), 2000)
       }
@@ -326,7 +332,7 @@ export function ProxyPanel() {
     } finally {
       setIsSyncing(false)
     }
-  }, [accounts, fetchStatus])
+  }, [accounts, fetchStatus, loadAvailableModels])
 
   // 启动服务器
   const handleStart = async () => {
