@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
 
 env:
-  WORKING_DIR: Kiro-account-manager
+  WORKING_DIR: .
 
 jobs:
   get-version:
