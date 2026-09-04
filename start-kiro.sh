@@ -28,7 +28,7 @@ sleep 2
 xpra \
     start :99 \
     --daemon=no \
-    --start-child="bash -c 'cd /root/kiro && exec node_modules/.bin/electron --no-sandbox --kiosk --remote-debugging-port=9910 .'" \
+    --start-child="bash -c 'cd /root/kiro && exec node_modules/.bin/electron --no-sandbox --remote-debugging-port=9910 .'" \
     --exit-with-children \
     --bind-ws=0.0.0.0:14500 \
     --html=on \

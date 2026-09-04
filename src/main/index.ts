@@ -2098,9 +2098,10 @@ function createWindow(): void {
   // Create the browser window.
   mainWindow = new BrowserWindow({
     title: `Kiro v${app.getVersion()}`,
+    width: 1200,
+    height: 800,
     minWidth: 800,
     minHeight: 600,
-    fullscreen: true,
     show: false,
     autoHideMenuBar: true,
     icon,
@@ -2112,39 +2113,10 @@ function createWindow(): void {
     }
   })
 
-  // Keep window at 100% screen size even when client resizes
-  // This is useful for xpra where the client screen size may change
-  let resizeTimer: NodeJS.Timeout | null = null
-  mainWindow.on('resize', () => {
-    if (!mainWindow || mainWindow.isDestroyed()) return
-
-    // Debounce resize events to avoid excessive calls
-    if (resizeTimer) clearTimeout(resizeTimer)
-    resizeTimer = setTimeout(() => {
-      if (!mainWindow || mainWindow.isDestroyed()) return
-
-      const display = screen.getPrimaryDisplay()
-      const { width, height } = display.workAreaSize
-
-      // Only resize if window is not already at full screen dimensions
-      const [currentWidth, currentHeight] = mainWindow.getSize()
-      if (currentWidth !== width || currentHeight !== height) {
-        console.log(`[Window] Resizing to match screen: ${width}x${height}`)
-        mainWindow.setSize(width, height)
-        mainWindow.center()
-      }
-    }, 500)
-  })
-
   mainWindow.on('ready-to-show', () => {
     // 设置带版本号的标题（HTML 加载后会覆盖初始标题）
     mainWindow?.setTitle(`Kiro 账号管理器 v${app.getVersion()}`)
     mainWindow?.show()
-
-    // Ensure window is at full screen size on startup
-    const display = screen.getPrimaryDisplay()
-    const { width, height } = display.workAreaSize
-    mainWindow?.setSize(width, height)
     mainWindow?.center()
 
     // 检查代理服务自启动配置
