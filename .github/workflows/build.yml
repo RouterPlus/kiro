@@ -220,21 +220,4 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-  deploy:
-    needs: [get-version]
-    runs-on: ubuntu-latest
-    if: github.event_name == 'push'
-    steps:
-      - name: Deploy to us1
-        uses: appleboy/ssh-action@v1
-        with:
-          host: ${{ secrets.DEPLOY_HOST }}
-          username: ${{ secrets.DEPLOY_USER }}
-          key: ${{ secrets.DEPLOY_KEY }}
-          script: |
-            cd /root/kiro
-            git pull origin main
-            npx electron-vite build
-            systemctl restart kiro.service
-            echo "Deployed v${{ needs.get-version.outputs.version }}"
 

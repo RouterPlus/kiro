@@ -42,6 +42,10 @@ const tls = require("tls");
 const url = require("url");
 const https = require("https");
 const tlsclientwrapper = require("tlsclientwrapper");
+const index_js = require("@modelcontextprotocol/sdk/server/index.js");
+require("@modelcontextprotocol/sdk/server/stdio.js");
+require("@modelcontextprotocol/sdk/server/sse.js");
+const types_js = require("@modelcontextprotocol/sdk/types.js");
 function _interopNamespaceDefault(e) {
   const n = Object.create(null, { [Symbol.toStringTag]: { value: "Module" } });
   if (e) {
@@ -580,7 +584,11 @@ class AccountPool {
       isAvailable: account.isAvailable !== false,
       requestCount: existing?.requestCount || account.requestCount || 0,
       errorCount: existing?.errorCount || account.errorCount || 0,
-      lastUsed: existing?.lastUsed || account.lastUsed || 0
+      lastUsed: existing?.lastUsed || account.lastUsed || 0,
+      // Clear exhausted state on re-sync to give accounts a fresh start
+      quotaExhaustedAt: void 0,
+      quotaResetAt: void 0,
+      cooldownUntil: void 0
     });
     this.accountStats.set(account.id, {
       requests: 0,
@@ -9703,7 +9711,7 @@ data: ${JSON.stringify({ type: "response.failed", error: { type: "api_error", me
     bucket.count++;
     return { allowed: true, retryAfterMs: 0 };
   }
-  /** 定期清理过期的限流桶 / 会话粘性条目（避免内存泄漏） */
+  /** 定期清理过期的限流桶 / 会话粘性条目 / 封禁和100%配额账号（避免内存泄漏） */
   cleanupExpiredCaches() {
     const now = Date.now();
     for (const [key, bucket] of this.rateLimitBuckets) {
@@ -9715,6 +9723,7 @@ data: ${JSON.stringify({ type: "response.failed", error: { type: "api_error", me
     if (this.auditLog.length > 200) {
       this.auditLog = this.auditLog.slice(-200);
     }
+    this.cleanupBannedAndExhaustedAccounts();
   }
   /**
    * P1-8 会话粘性账号选择：相同 session hint 优先复用同一账号
@@ -9737,6 +9746,45 @@ data: ${JSON.stringify({ type: "response.failed", error: { type: "api_error", me
   rememberAffinity(sessionHint, accountId) {
     if (!this.config.sessionAffinityEnabled || !sessionHint) return;
     this.sessionAffinity.set(sessionHint, { accountId, lastAt: Date.now() });
+  }
+  /** 清理封禁账号和100%配额账号 */
+  cleanupBannedAndExhaustedAccounts() {
+    const now = Date.now();
+    const allAccounts2 = this.accountPool.getAllAccounts();
+    let removedCount = 0;
+    for (const account of allAccounts2) {
+      let shouldRemove = false;
+      let reason = "";
+      if (account.suspended) {
+        shouldRemove = true;
+        reason = "suspended";
+      } else if (account.quotaLimit && account.quotaLimit > 0) {
+        const quotaUsed = account.quotaUsed ?? 0;
+        const percentUsed = quotaUsed / account.quotaLimit * 100;
+        if (percentUsed >= 100) {
+          if (account.quotaResetAt && account.quotaResetAt > now && account.quotaResetAt - now < 24 * 60 * 60 * 1e3) ;
+          else {
+            shouldRemove = true;
+            reason = "100% quota exhausted";
+          }
+        }
+      }
+      if (shouldRemove) {
+        this.accountPool.removeAccount(account.id);
+        removedCount++;
+        console.log(
+          `[ProxyServer] Auto-removed account ${account.email || account.id} from pool: ${reason}`
+        );
+        this.appendAuditLog("account_auto_removed", {
+          accountId: account.id,
+          email: account.email,
+          reason
+        });
+      }
+    }
+    if (removedCount > 0) {
+      console.log(`[ProxyServer] Auto-cleanup removed ${removedCount} account(s) from pool`);
+    }
   }
   /** P2-17 审计日志 */
   appendAuditLog(type, data) {
@@ -15560,6 +15608,15 @@ function buildTrayMenu() {
     });
     menuTemplate.push({ type: "separator" });
   }
+  if (callbacks?.getMcpStatus) {
+    const mcpStatus = callbacks.getMcpStatus();
+    menuTemplate.push({
+      label: mcpStatus.initialized ? isEn ? `MCP Server: ${mcpStatus.running ? "Running" : "Stopped"}` : `MCP 服务: ${mcpStatus.running ? "运行中" : "已停止"}` : isEn ? "MCP Server: Not Initialized" : "MCP 服务: 未初始化",
+      icon: getStatusIcon(mcpStatus.running),
+      enabled: false
+    });
+    menuTemplate.push({ type: "separator" });
+  }
   const account = callbacks?.getCurrentAccount() || currentAccount;
   if (account) {
     menuTemplate.push({
@@ -15721,6 +15778,1347 @@ const defaultTraySettings = {
   showNotifications: true,
   minimizeOnStart: false
 };
+let getProxyServerInstance$2 = () => null;
+let updateTrayMenuCallback = null;
+let storeInstance$1 = null;
+function initProxyTools(deps) {
+  getProxyServerInstance$2 = deps.getProxyServer;
+  updateTrayMenuCallback = deps.updateTrayMenu;
+  storeInstance$1 = deps.store;
+}
+function registerProxyTools(server) {
+  server.setRequestHandler(types_js.ListToolsRequestSchema, async () => {
+    return {
+      tools: [
+        {
+          name: "kiro_get_proxy_status",
+          description: "Get the current status of the Kiro proxy server including running state, configuration, and statistics",
+          inputSchema: {
+            type: "object",
+            properties: {},
+            required: []
+          }
+        },
+        {
+          name: "kiro_start_proxy",
+          description: "Start the Kiro proxy server with optional configuration overrides",
+          inputSchema: {
+            type: "object",
+            properties: {
+              port: {
+                type: "number",
+                description: "Port number to listen on (default: 5580)"
+              },
+              host: {
+                type: "string",
+                description: "Host address to bind to (default: 127.0.0.1)"
+              },
+              enableMultiAccount: {
+                type: "boolean",
+                description: "Enable multi-account load balancing"
+              },
+              logRequests: {
+                type: "boolean",
+                description: "Enable request logging"
+              },
+              maxConcurrent: {
+                type: "number",
+                description: "Maximum concurrent requests"
+              }
+            }
+          }
+        },
+        {
+          name: "kiro_stop_proxy",
+          description: "Stop the running Kiro proxy server",
+          inputSchema: {
+            type: "object",
+            properties: {},
+            required: []
+          }
+        },
+        {
+          name: "kiro_restart_proxy",
+          description: "Restart the Kiro proxy server (stop and start with current config)",
+          inputSchema: {
+            type: "object",
+            properties: {},
+            required: []
+          }
+        },
+        {
+          name: "kiro_update_proxy_config",
+          description: "Update the proxy server configuration. Server may need restart for some changes to take effect.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              port: {
+                type: "number",
+                description: "Port number to listen on"
+              },
+              host: {
+                type: "string",
+                description: "Host address to bind to"
+              },
+              enableMultiAccount: {
+                type: "boolean",
+                description: "Enable multi-account load balancing"
+              },
+              logRequests: {
+                type: "boolean",
+                description: "Enable request logging"
+              },
+              logStreamEvents: {
+                type: "boolean",
+                description: "Enable streaming event logging"
+              },
+              maxConcurrent: {
+                type: "number",
+                description: "Maximum concurrent requests"
+              },
+              maxRetries: {
+                type: "number",
+                description: "Maximum retry attempts"
+              },
+              retryDelayMs: {
+                type: "number",
+                description: "Delay between retries in milliseconds"
+              },
+              autoStart: {
+                type: "boolean",
+                description: "Auto-start proxy on application launch"
+              },
+              disableTools: {
+                type: "boolean",
+                description: "Disable tool calls in requests"
+              },
+              accountSelectionStrategy: {
+                type: "string",
+                enum: ["round-robin", "sticky"],
+                description: "Multi-account selection strategy"
+              }
+            }
+          }
+        }
+      ]
+    };
+  });
+  server.setRequestHandler(types_js.CallToolRequestSchema, async (request) => {
+    const { name, arguments: args } = request.params;
+    try {
+      switch (name) {
+        case "kiro_get_proxy_status":
+          return await handleGetProxyStatus();
+        case "kiro_start_proxy":
+          return await handleStartProxy(args);
+        case "kiro_stop_proxy":
+          return await handleStopProxy();
+        case "kiro_restart_proxy":
+          return await handleRestartProxy();
+        case "kiro_update_proxy_config":
+          return await handleUpdateProxyConfig(args);
+        default:
+          throw new Error(`Unknown tool: ${name}`);
+      }
+    } catch (error) {
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify({
+              success: false,
+              error: error instanceof Error ? error.message : String(error)
+            }, null, 2)
+          }
+        ]
+      };
+    }
+  });
+}
+async function handleGetProxyStatus() {
+  const proxyServer2 = getProxyServerInstance$2?.();
+  if (!proxyServer2) {
+    const savedConfig = storeInstance$1?.get("proxyConfig");
+    return {
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify({
+            success: true,
+            running: false,
+            config: savedConfig || null,
+            stats: null,
+            sessionStats: null
+          }, null, 2)
+        }
+      ]
+    };
+  }
+  const running = proxyServer2.isRunning();
+  const config = proxyServer2.getConfig();
+  const stats = running ? proxyServer2.getStats() : null;
+  const sessionStats = running ? proxyServer2.getSessionStats() : null;
+  const serializedStats = stats ? {
+    ...stats,
+    accountStats: stats.accountStats ? Object.fromEntries(stats.accountStats) : {},
+    endpointStats: stats.endpointStats ? Object.fromEntries(stats.endpointStats) : {},
+    modelStats: stats.modelStats ? Object.fromEntries(stats.modelStats) : {}
+  } : null;
+  return {
+    content: [
+      {
+        type: "text",
+        text: JSON.stringify({
+          success: true,
+          running,
+          config,
+          stats: serializedStats,
+          sessionStats
+        }, null, 2)
+      }
+    ]
+  };
+}
+async function handleStartProxy(config) {
+  try {
+    const proxyServer2 = getProxyServerInstance$2?.();
+    if (!proxyServer2) {
+      throw new Error("Proxy server not initialized");
+    }
+    if (config) {
+      proxyServer2.updateConfig(config);
+    }
+    await proxyServer2.start();
+    updateTrayMenuCallback?.();
+    const finalConfig = proxyServer2.getConfig();
+    return {
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify({
+            success: true,
+            port: finalConfig.port,
+            host: finalConfig.host,
+            message: `Proxy server started on ${finalConfig.host}:${finalConfig.port}`
+          }, null, 2)
+        }
+      ]
+    };
+  } catch (error) {
+    console.error("[ProxyTools] Start failed:", error);
+    return {
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify({
+            success: false,
+            error: error instanceof Error ? error.message : "Failed to start proxy server"
+          }, null, 2)
+        }
+      ]
+    };
+  }
+}
+async function handleStopProxy() {
+  try {
+    const proxyServer2 = getProxyServerInstance$2?.();
+    if (!proxyServer2) {
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify({
+              success: true,
+              message: "Proxy server is not running"
+            }, null, 2)
+          }
+        ]
+      };
+    }
+    await proxyServer2.stop();
+    updateTrayMenuCallback?.();
+    return {
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify({
+            success: true,
+            message: "Proxy server stopped"
+          }, null, 2)
+        }
+      ]
+    };
+  } catch (error) {
+    console.error("[ProxyTools] Stop failed:", error);
+    return {
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify({
+            success: false,
+            error: error instanceof Error ? error.message : "Failed to stop proxy server"
+          }, null, 2)
+        }
+      ]
+    };
+  }
+}
+async function handleRestartProxy() {
+  try {
+    const proxyServer2 = getProxyServerInstance$2?.();
+    if (!proxyServer2) {
+      throw new Error("Proxy server not initialized");
+    }
+    if (!proxyServer2.isRunning()) {
+      throw new Error("Proxy server is not running");
+    }
+    await proxyServer2.restartServer();
+    return {
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify({
+            success: true,
+            message: "Proxy server restarted successfully"
+          }, null, 2)
+        }
+      ]
+    };
+  } catch (error) {
+    console.error("[ProxyTools] Restart failed:", error);
+    return {
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify({
+            success: false,
+            error: error instanceof Error ? error.message : "Failed to restart proxy server"
+          }, null, 2)
+        }
+      ]
+    };
+  }
+}
+async function handleUpdateProxyConfig(config) {
+  try {
+    const proxyServer2 = getProxyServerInstance$2?.();
+    if (!proxyServer2) {
+      throw new Error("Proxy server not initialized");
+    }
+    proxyServer2.updateConfig(config);
+    const newConfig2 = proxyServer2.getConfig();
+    if (storeInstance$1) {
+      storeInstance$1.set("proxyConfig", newConfig2);
+    }
+    return {
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify({
+            success: true,
+            config: newConfig2,
+            message: "Proxy configuration updated successfully"
+          }, null, 2)
+        }
+      ]
+    };
+  } catch (error) {
+    console.error("[ProxyTools] Update config failed:", error);
+    return {
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify({
+            success: false,
+            error: error instanceof Error ? error.message : "Failed to update config"
+          }, null, 2)
+        }
+      ]
+    };
+  }
+}
+let getProxyServerInstance$1 = () => null;
+let storeInstance = null;
+let fetchKiroModelsFunc = null;
+let getAccountDataFunc = () => null;
+function initModelsApiTools(deps) {
+  getProxyServerInstance$1 = deps.getProxyServer;
+  storeInstance = deps.store;
+  fetchKiroModelsFunc = deps.fetchKiroModels;
+  getAccountDataFunc = deps.getAccountData;
+}
+function registerModelsApiTools(server) {
+  server.setRequestHandler(types_js.ListToolsRequestSchema, async () => {
+    return {
+      tools: [
+        {
+          name: "kiro_list_available_models",
+          description: "List available Kiro models from the currently active account. Returns model ID, name, and description for each available model. Requires an active account with valid credentials.",
+          inputSchema: {
+            type: "object",
+            properties: {},
+            required: []
+          }
+        },
+        {
+          name: "kiro_get_api_keys",
+          description: "Get all API keys with their configuration and usage statistics. Returns key ID, name, format, enabled status, creation date, credit limits, and detailed usage information including total requests, credits consumed, tokens used (input/output), daily statistics, and per-model breakdown.",
+          inputSchema: {
+            type: "object",
+            properties: {},
+            required: []
+          }
+        },
+        {
+          name: "kiro_add_api_key",
+          description: "Create a new API key for accessing the Kiro proxy server. You can specify a custom name, choose the key format (sk/simple/token), set credit limits, or let the system generate defaults. Returns the newly created key with all details.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              name: {
+                type: "string",
+                description: 'Human-readable name for the API key (e.g., "Development Key", "Production API")'
+              },
+              format: {
+                type: "string",
+                enum: ["sk", "simple", "token"],
+                description: 'Key format: "sk" (sk-xxx format), "simple" (PROXY_KEY_XXX format), or "token" (KEY:xxx:TOKEN:xxx format). Default: sk'
+              },
+              key: {
+                type: "string",
+                description: "Custom key value (optional). If not provided, a random key will be generated in the specified format."
+              },
+              creditsLimit: {
+                type: "number",
+                description: "Maximum credits this key can consume (optional). If not set, the key has unlimited credits."
+              }
+            }
+          }
+        },
+        {
+          name: "kiro_delete_api_key",
+          description: "Delete an API key by its ID. This action is permanent and cannot be undone. Any requests using this key will be rejected after deletion.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              id: {
+                type: "string",
+                description: "The unique ID of the API key to delete (UUID format)"
+              }
+            },
+            required: ["id"]
+          }
+        }
+      ]
+    };
+  });
+  server.setRequestHandler(types_js.CallToolRequestSchema, async (request) => {
+    const { name, arguments: args } = request.params;
+    try {
+      switch (name) {
+        case "kiro_list_available_models":
+          return await handleListAvailableModels();
+        case "kiro_get_api_keys":
+          return await handleGetApiKeys();
+        case "kiro_add_api_key":
+          return await handleAddApiKey(
+            args
+          );
+        case "kiro_delete_api_key":
+          return await handleDeleteApiKey(args);
+        default:
+          throw new Error(`Unknown tool: ${name}`);
+      }
+    } catch (error) {
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify(
+              {
+                success: false,
+                error: error instanceof Error ? error.message : String(error)
+              },
+              null,
+              2
+            )
+          }
+        ]
+      };
+    }
+  });
+}
+async function handleListAvailableModels() {
+  try {
+    if (!storeInstance || !fetchKiroModelsFunc || !getAccountDataFunc) {
+      throw new Error("Dependencies not initialized");
+    }
+    const accountData = getAccountDataFunc();
+    if (!accountData?.accounts) {
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify(
+              {
+                success: true,
+                models: [],
+                message: "No accounts configured"
+              },
+              null,
+              2
+            )
+          }
+        ]
+      };
+    }
+    const allAccounts2 = Object.values(accountData.accounts);
+    const account = allAccounts2.find((acc) => acc.isActive && acc.credentials?.accessToken) || allAccounts2.find((acc) => acc.status === "active" && acc.credentials?.accessToken);
+    if (!account) {
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify(
+              {
+                success: true,
+                models: [],
+                message: "No active account with valid credentials found"
+              },
+              null,
+              2
+            )
+          }
+        ]
+      };
+    }
+    const proxyAccount = {
+      id: account.id,
+      email: account.email,
+      accessToken: account.credentials.accessToken,
+      refreshToken: account.credentials?.refreshToken,
+      profileArn: account.profileArn,
+      expiresAt: account.credentials?.expiresAt,
+      clientId: account.credentials?.clientId,
+      clientSecret: account.credentials?.clientSecret,
+      region: account.credentials?.region || "us-east-1",
+      authMethod: account.credentials?.authMethod
+    };
+    const models = await fetchKiroModelsFunc(proxyAccount);
+    return {
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify(
+            {
+              success: true,
+              account: {
+                id: account.id,
+                email: account.email
+              },
+              models: models.map((m) => ({
+                id: m.modelId,
+                name: m.modelName,
+                description: m.description
+              })),
+              count: models.length
+            },
+            null,
+            2
+          )
+        }
+      ]
+    };
+  } catch (error) {
+    console.error("[ModelsApiTools] Failed to fetch models:", error);
+    return {
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify(
+            {
+              success: false,
+              models: [],
+              error: error instanceof Error ? error.message : "Failed to fetch models"
+            },
+            null,
+            2
+          )
+        }
+      ]
+    };
+  }
+}
+async function handleGetApiKeys() {
+  try {
+    const proxyServer2 = getProxyServerInstance$1?.();
+    if (!proxyServer2) {
+      throw new Error("Proxy server not initialized");
+    }
+    const config = proxyServer2.getConfig();
+    const apiKeys = config.apiKeys || [];
+    return {
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify(
+            {
+              success: true,
+              apiKeys,
+              count: apiKeys.length
+            },
+            null,
+            2
+          )
+        }
+      ]
+    };
+  } catch (error) {
+    return {
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify(
+            {
+              success: false,
+              error: error instanceof Error ? error.message : "Failed to get API keys",
+              apiKeys: []
+            },
+            null,
+            2
+          )
+        }
+      ]
+    };
+  }
+}
+async function handleAddApiKey(args) {
+  try {
+    const crypto2 = await import("crypto");
+    const proxyServer2 = getProxyServerInstance$1?.();
+    if (!proxyServer2) {
+      throw new Error("Proxy server not initialized");
+    }
+    const config = proxyServer2.getConfig();
+    const apiKeys = config.apiKeys || [];
+    const format = args.format || "sk";
+    let newKey = args.key;
+    if (!newKey) {
+      const randomHex = crypto2.randomBytes(24).toString("hex");
+      switch (format) {
+        case "sk":
+          newKey = `sk-${randomHex}`;
+          break;
+        case "simple":
+          newKey = `PROXY_KEY_${randomHex.toUpperCase().substring(0, 32)}`;
+          break;
+        case "token":
+          newKey = `KEY:${randomHex.substring(0, 16)}:TOKEN:${randomHex.substring(16, 32)}`;
+          break;
+        default:
+          newKey = `sk-${randomHex}`;
+      }
+    }
+    const newApiKey = {
+      id: crypto2.randomUUID(),
+      name: args.name || `API Key ${apiKeys.length + 1}`,
+      key: newKey,
+      format,
+      enabled: true,
+      createdAt: Date.now(),
+      creditsLimit: args.creditsLimit,
+      usage: {
+        totalRequests: 0,
+        totalCredits: 0,
+        totalInputTokens: 0,
+        totalOutputTokens: 0,
+        daily: {}
+      }
+    };
+    apiKeys.push(newApiKey);
+    proxyServer2.updateConfig({ apiKeys });
+    if (storeInstance) {
+      storeInstance.set("proxyConfig", proxyServer2.getConfig());
+    }
+    return {
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify(
+            {
+              success: true,
+              apiKey: newApiKey,
+              message: `API key "${newApiKey.name}" created successfully`
+            },
+            null,
+            2
+          )
+        }
+      ]
+    };
+  } catch (error) {
+    return {
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify(
+            {
+              success: false,
+              error: error instanceof Error ? error.message : "Failed to add API key"
+            },
+            null,
+            2
+          )
+        }
+      ]
+    };
+  }
+}
+async function handleDeleteApiKey(args) {
+  try {
+    if (!args.id) {
+      throw new Error("API key ID is required");
+    }
+    const proxyServer2 = getProxyServerInstance$1?.();
+    if (!proxyServer2) {
+      throw new Error("Proxy server not initialized");
+    }
+    const config = proxyServer2.getConfig();
+    const apiKeys = config.apiKeys || [];
+    const index = apiKeys.findIndex((k) => k.id === args.id);
+    if (index === -1) {
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify(
+              {
+                success: false,
+                error: "API key not found"
+              },
+              null,
+              2
+            )
+          }
+        ]
+      };
+    }
+    const deletedKey = apiKeys[index];
+    apiKeys.splice(index, 1);
+    proxyServer2.updateConfig({ apiKeys });
+    if (storeInstance) {
+      storeInstance.set("proxyConfig", proxyServer2.getConfig());
+    }
+    return {
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify(
+            {
+              success: true,
+              message: `API key "${deletedKey.name}" deleted successfully`,
+              deletedKey: {
+                id: deletedKey.id,
+                name: deletedKey.name,
+                format: deletedKey.format
+              }
+            },
+            null,
+            2
+          )
+        }
+      ]
+    };
+  } catch (error) {
+    return {
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify(
+            {
+              success: false,
+              error: error instanceof Error ? error.message : "Failed to delete API key"
+            },
+            null,
+            2
+          )
+        }
+      ]
+    };
+  }
+}
+let getProxyServerInstance = () => null;
+let getProxyLogStore = () => null;
+function initUsageBillingTools(deps) {
+  getProxyServerInstance = deps.getProxyServer;
+  getProxyLogStore = deps.getLogStore;
+}
+function registerUsageBillingTools(server) {
+  server.setRequestHandler(types_js.ListToolsRequestSchema, async () => {
+    return {
+      tools: [
+        {
+          name: "kiro_get_usage_stats",
+          description: "Get comprehensive usage statistics including total requests, success/failure rates, token usage (input/output/cache/reasoning), credits consumed, estimated cost, per-account stats, per-endpoint stats, and per-model stats. Returns data from the current proxy session.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              includeAccountBreakdown: {
+                type: "boolean",
+                description: "Include per-account statistics breakdown (default: true)"
+              },
+              includeEndpointBreakdown: {
+                type: "boolean",
+                description: "Include per-endpoint statistics breakdown (default: true)"
+              },
+              includeModelBreakdown: {
+                type: "boolean",
+                description: "Include per-model statistics breakdown (default: true)"
+              }
+            }
+          }
+        },
+        {
+          name: "kiro_get_proxy_logs",
+          description: "Get proxy request logs showing detailed information for each API request: timestamp, path, model, account ID, token usage, credits, response time, success/failure status, and error messages. Logs are stored in memory and persist across proxy restarts until cleared.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              count: {
+                type: "number",
+                description: "Number of recent logs to retrieve. If omitted, returns all logs. Use smaller values (e.g., 50-100) for quick checks.",
+                minimum: 1
+              }
+            }
+          }
+        },
+        {
+          name: "kiro_get_audit_log",
+          description: "Get audit log entries for security and compliance monitoring. Tracks important events such as account additions/removals, configuration changes, authentication events, quota exhaustion, and account suspensions. Returns the most recent 200 entries.",
+          inputSchema: {
+            type: "object",
+            properties: {},
+            required: []
+          }
+        },
+        {
+          name: "kiro_check_quota",
+          description: "Check quota usage and limits for all accounts in the proxy pool. Returns per-account quota information including used/limit amounts, exhaustion status, reset times, suspension status, and availability. Useful for monitoring account health and preventing service interruptions.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              showSuspendedOnly: {
+                type: "boolean",
+                description: "Only show accounts that are suspended or have quota issues (default: false)"
+              }
+            }
+          }
+        }
+      ]
+    };
+  });
+  server.setRequestHandler(types_js.CallToolRequestSchema, async (request) => {
+    const { name, arguments: args } = request.params;
+    try {
+      switch (name) {
+        case "kiro_get_usage_stats":
+          return await handleGetUsageStats(
+            args
+          );
+        case "kiro_get_proxy_logs":
+          return await handleGetProxyLogs(args);
+        case "kiro_get_audit_log":
+          return await handleGetAuditLog();
+        case "kiro_check_quota":
+          return await handleCheckQuota(args);
+        default:
+          throw new Error(`Unknown tool: ${name}`);
+      }
+    } catch (error) {
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify(
+              {
+                success: false,
+                error: error instanceof Error ? error.message : String(error)
+              },
+              null,
+              2
+            )
+          }
+        ]
+      };
+    }
+  });
+}
+async function handleGetUsageStats(args) {
+  const proxyServer2 = getProxyServerInstance?.();
+  if (!proxyServer2) {
+    return {
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify(
+            {
+              success: false,
+              error: "Proxy server not initialized"
+            },
+            null,
+            2
+          )
+        }
+      ]
+    };
+  }
+  if (!proxyServer2.isRunning()) {
+    return {
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify(
+            {
+              success: true,
+              running: false,
+              message: "Proxy server is not running. No usage data available."
+            },
+            null,
+            2
+          )
+        }
+      ]
+    };
+  }
+  const stats = proxyServer2.getStats();
+  const includeAccount = args.includeAccountBreakdown !== false;
+  const includeEndpoint = args.includeEndpointBreakdown !== false;
+  const includeModel = args.includeModelBreakdown !== false;
+  const response = {
+    success: true,
+    running: true,
+    stats: {
+      totalRequests: stats.totalRequests,
+      successRequests: stats.successRequests,
+      failedRequests: stats.failedRequests,
+      successRate: stats.totalRequests > 0 ? `${(stats.successRequests / stats.totalRequests * 100).toFixed(2)}%` : "0%",
+      tokens: {
+        total: stats.totalTokens,
+        input: stats.inputTokens,
+        output: stats.outputTokens,
+        cacheRead: stats.cacheReadTokens,
+        cacheWrite: stats.cacheWriteTokens,
+        reasoning: stats.reasoningTokens
+      },
+      credits: {
+        total: stats.totalCredits,
+        estimatedCost: stats.totalCost
+      },
+      uptime: {
+        startTime: stats.startTime,
+        uptimeMs: Date.now() - stats.startTime,
+        uptimeFormatted: formatUptime(Date.now() - stats.startTime)
+      },
+      recentRequests: stats.recentRequests?.length || 0
+    }
+  };
+  if (includeAccount && stats.accountStats) {
+    response.accountStats = Object.fromEntries(stats.accountStats);
+  }
+  if (includeEndpoint && stats.endpointStats) {
+    response.endpointStats = Object.fromEntries(stats.endpointStats);
+  }
+  if (includeModel && stats.modelStats) {
+    response.modelStats = Object.fromEntries(stats.modelStats);
+  }
+  return {
+    content: [
+      {
+        type: "text",
+        text: JSON.stringify(response, null, 2)
+      }
+    ]
+  };
+}
+async function handleGetProxyLogs(args) {
+  const logStore = getProxyLogStore?.();
+  if (!logStore) {
+    return {
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify(
+            {
+              success: false,
+              error: "Proxy log store not initialized"
+            },
+            null,
+            2
+          )
+        }
+      ]
+    };
+  }
+  try {
+    const logs = args.count ? logStore.getLast(args.count) : logStore.getAll();
+    const totalCount = logStore.getCount();
+    return {
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify(
+            {
+              success: true,
+              logs,
+              count: logs.length,
+              totalCount,
+              truncated: args.count ? logs.length < totalCount : false
+            },
+            null,
+            2
+          )
+        }
+      ]
+    };
+  } catch (error) {
+    return {
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify(
+            {
+              success: false,
+              error: error instanceof Error ? error.message : "Failed to retrieve logs"
+            },
+            null,
+            2
+          )
+        }
+      ]
+    };
+  }
+}
+async function handleGetAuditLog() {
+  const proxyServer2 = getProxyServerInstance?.();
+  if (!proxyServer2) {
+    return {
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify(
+            {
+              success: true,
+              entries: [],
+              message: "Proxy server not initialized. No audit data available."
+            },
+            null,
+            2
+          )
+        }
+      ]
+    };
+  }
+  try {
+    const auditLog = proxyServer2.getAuditLog();
+    return {
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify(
+            {
+              success: true,
+              entries: Array.from(auditLog),
+              count: auditLog.length
+            },
+            null,
+            2
+          )
+        }
+      ]
+    };
+  } catch (error) {
+    return {
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify(
+            {
+              success: false,
+              error: error instanceof Error ? error.message : "Failed to retrieve audit log"
+            },
+            null,
+            2
+          )
+        }
+      ]
+    };
+  }
+}
+async function handleCheckQuota(args) {
+  const proxyServer2 = getProxyServerInstance?.();
+  if (!proxyServer2) {
+    return {
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify(
+            {
+              success: false,
+              error: "Proxy server not initialized"
+            },
+            null,
+            2
+          )
+        }
+      ]
+    };
+  }
+  try {
+    const accountPool = proxyServer2.getAccountPool();
+    const allAccounts2 = accountPool.getAllAccounts();
+    let accounts = allAccounts2;
+    if (args.showSuspendedOnly) {
+      accounts = allAccounts2.filter(
+        (acc) => acc.suspended || acc.quotaExhaustedAt || acc.quotaLimit && acc.quotaUsed && acc.quotaUsed >= acc.quotaLimit
+      );
+    }
+    const accountQuotas = accounts.map((acc) => {
+      const now = Date.now();
+      const isQuotaExhausted = acc.quotaLimit && acc.quotaUsed ? acc.quotaUsed >= acc.quotaLimit : false;
+      const quotaResetIn = acc.quotaResetAt && acc.quotaResetAt > now ? formatDuration(acc.quotaResetAt - now) : void 0;
+      return {
+        id: acc.id,
+        email: acc.email || "N/A",
+        isAvailable: acc.isAvailable !== false,
+        suspended: acc.suspended || false,
+        suspendedAt: acc.suspendedAt,
+        suspendReason: acc.suspendReason,
+        suspendMessage: acc.suspendMessage,
+        quota: {
+          used: acc.quotaUsed || 0,
+          limit: acc.quotaLimit || null,
+          unlimited: !acc.quotaLimit,
+          exhausted: isQuotaExhausted,
+          exhaustedAt: acc.quotaExhaustedAt,
+          resetAt: acc.quotaResetAt,
+          resetIn: quotaResetIn,
+          usagePercent: acc.quotaLimit && acc.quotaUsed ? `${(acc.quotaUsed / acc.quotaLimit * 100).toFixed(2)}%` : "N/A"
+        },
+        usage: {
+          requestCount: acc.requestCount || 0,
+          errorCount: acc.errorCount || 0,
+          lastUsed: acc.lastUsed,
+          cooldownUntil: acc.cooldownUntil
+        }
+      };
+    });
+    const summary = {
+      totalAccounts: allAccounts2.length,
+      availableAccounts: allAccounts2.filter((a) => a.isAvailable !== false).length,
+      suspendedAccounts: allAccounts2.filter((a) => a.suspended).length,
+      quotaExhaustedAccounts: allAccounts2.filter(
+        (a) => a.quotaLimit && a.quotaUsed && a.quotaUsed >= a.quotaLimit
+      ).length
+    };
+    return {
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify(
+            {
+              success: true,
+              summary,
+              accounts: accountQuotas,
+              filteredBySuspended: args.showSuspendedOnly || false
+            },
+            null,
+            2
+          )
+        }
+      ]
+    };
+  } catch (error) {
+    return {
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify(
+            {
+              success: false,
+              error: error instanceof Error ? error.message : "Failed to check quota"
+            },
+            null,
+            2
+          )
+        }
+      ]
+    };
+  }
+}
+function formatUptime(ms) {
+  const seconds = Math.floor(ms / 1e3);
+  const minutes = Math.floor(seconds / 60);
+  const hours = Math.floor(minutes / 60);
+  const days = Math.floor(hours / 24);
+  if (days > 0) {
+    return `${days}d ${hours % 24}h ${minutes % 60}m`;
+  } else if (hours > 0) {
+    return `${hours}h ${minutes % 60}m ${seconds % 60}s`;
+  } else if (minutes > 0) {
+    return `${minutes}m ${seconds % 60}s`;
+  } else {
+    return `${seconds}s`;
+  }
+}
+function formatDuration(ms) {
+  const seconds = Math.floor(ms / 1e3);
+  const minutes = Math.floor(seconds / 60);
+  const hours = Math.floor(minutes / 60);
+  const days = Math.floor(hours / 24);
+  if (days > 0) {
+    return `${days}d ${hours % 24}h`;
+  } else if (hours > 0) {
+    return `${hours}h ${minutes % 60}m`;
+  } else if (minutes > 0) {
+    return `${minutes}m`;
+  } else {
+    return `${seconds}s`;
+  }
+}
+let mcpServer = null;
+let mcpTransport = null;
+let isRunning = false;
+const defaultConfig = {
+  enabled: true,
+  stdio: {
+    enabled: true
+  },
+  http: {
+    enabled: true,
+    endpoint: "/mcp"
+  },
+  tools: {
+    proxy: true,
+    models: true,
+    usage: true
+  }
+};
+function getMcpConfigPath() {
+  const settingsDir = path.join(electron.app.getPath("userData"), "settings");
+  return path.join(settingsDir, "mcp.json");
+}
+async function loadMcpConfig() {
+  try {
+    const configPath = getMcpConfigPath();
+    if (!fs.existsSync(configPath)) {
+      await saveMcpConfig(defaultConfig);
+      return defaultConfig;
+    }
+    const content = await promises.readFile(configPath, "utf-8");
+    const config = JSON.parse(content);
+    return { ...defaultConfig, ...config };
+  } catch (error) {
+    console.error("[MCP] Failed to load config:", error);
+    return defaultConfig;
+  }
+}
+async function saveMcpConfig(config) {
+  try {
+    const configPath = getMcpConfigPath();
+    const settingsDir = path.join(electron.app.getPath("userData"), "settings");
+    if (!fs.existsSync(settingsDir)) {
+      await promises.mkdir(settingsDir, { recursive: true });
+    }
+    await promises.writeFile(configPath, JSON.stringify(config, null, 2), "utf-8");
+    console.log("[MCP] Config saved to:", configPath);
+  } catch (error) {
+    console.error("[MCP] Failed to save config:", error);
+  }
+}
+async function initMcpServer(deps) {
+  try {
+    console.log("[MCP] Initializing MCP server...");
+    const config = await loadMcpConfig();
+    if (!config.enabled) {
+      console.log("[MCP] MCP server is disabled in config");
+      return;
+    }
+    mcpServer = new index_js.Server(
+      {
+        name: "kiro-account-manager",
+        version: "1.0.0"
+      },
+      {
+        capabilities: {
+          tools: {}
+        }
+      }
+    );
+    if (config.tools.proxy) {
+      initProxyTools({
+        getProxyServer: deps.getProxyServer,
+        updateTrayMenu: deps.updateTrayMenu,
+        store: deps.store
+      });
+      registerProxyTools(mcpServer);
+      console.log("[MCP] Registered proxy tools");
+    }
+    if (config.tools.models) {
+      initModelsApiTools({
+        getProxyServer: deps.getProxyServer,
+        store: deps.store,
+        getAccountData: deps.getAccountData,
+        fetchKiroModels: deps.fetchKiroModels
+      });
+      registerModelsApiTools(mcpServer);
+      console.log("[MCP] Registered models & API tools");
+    }
+    if (config.tools.usage) {
+      initUsageBillingTools({
+        getProxyServer: deps.getProxyServer,
+        getLogStore: deps.getProxyLogStore
+      });
+      registerUsageBillingTools(mcpServer);
+      console.log("[MCP] Registered usage & billing tools");
+    }
+    console.log("[MCP] MCP server initialized successfully");
+  } catch (error) {
+    console.error("[MCP] Failed to initialize MCP server:", error);
+    throw error;
+  }
+}
+async function stopMcpServer() {
+  try {
+    if (mcpTransport) {
+      await mcpTransport.close();
+      mcpTransport = null;
+    }
+    if (mcpServer) {
+      await mcpServer.close();
+      mcpServer = null;
+    }
+    isRunning = false;
+    console.log("[MCP] Server stopped");
+  } catch (error) {
+    console.error("[MCP] Error stopping MCP server:", error);
+  }
+}
+function getMcpServerStatus() {
+  return {
+    running: isRunning,
+    initialized: mcpServer !== null,
+    config: null
+    // Config is loaded async, could add a cache here if needed
+  };
+}
+async function getMcpConfig() {
+  return await loadMcpConfig();
+}
+async function updateMcpConfig(updates) {
+  const config = await loadMcpConfig();
+  const newConfig2 = { ...config, ...updates };
+  await saveMcpConfig(newConfig2);
+}
 electronUpdater.autoUpdater.autoDownload = false;
 electronUpdater.autoUpdater.autoInstallOnAppQuit = true;
 function setupAutoUpdater() {
@@ -16214,7 +17612,7 @@ function initProxyServer() {
   const savedTotalRequests = store?.get("proxyTotalRequests") || 0;
   const savedSuccessRequests = store?.get("proxySuccessRequests") || 0;
   const savedFailedRequests = store?.get("proxyFailedRequests") || 0;
-  const defaultConfig = {
+  const defaultConfig2 = {
     enabled: false,
     port: 5580,
     host: "127.0.0.1",
@@ -16229,7 +17627,7 @@ function initProxyServer() {
     enableServerSideToolAutoContinue: false,
     clientDrivenToolExecution: true
   };
-  const config = savedConfig ? { ...defaultConfig, ...savedConfig } : defaultConfig;
+  const config = savedConfig ? { ...defaultConfig2, ...savedConfig } : defaultConfig2;
   if (config.payloadSizeLimitKB) {
     setPayloadSizeLimitKB(config.payloadSizeLimitKB);
   }
@@ -16939,21 +18337,21 @@ async function initStore() {
   const Store = (await import("electron-store")).default;
   const fs2 = await import("fs/promises");
   const path2 = await import("path");
-  const storeInstance = new Store({
+  const storeInstance2 = new Store({
     name: "kiro-accounts",
     encryptionKey: "kiro-account-manager-secret-key"
   });
-  store = storeInstance;
+  store = storeInstance2;
   try {
-    const backupPath = path2.join(path2.dirname(storeInstance.path), "kiro-accounts.backup.json");
-    const mainData = storeInstance.get("accountData");
+    const backupPath = path2.join(path2.dirname(storeInstance2.path), "kiro-accounts.backup.json");
+    const mainData = storeInstance2.get("accountData");
     if (!mainData) {
       try {
         const backupContent = await fs2.readFile(backupPath, "utf-8");
         const backupData = JSON.parse(backupContent);
         if (backupData && backupData.accounts) {
           console.log("[Store] Restoring data from backup...");
-          storeInstance.set("accountData", backupData);
+          storeInstance2.set("accountData", backupData);
           console.log("[Store] Data restored from backup successfully");
         }
       } catch {
@@ -17126,6 +18524,9 @@ function initTray() {
     getSessionStats: () => {
       const server = initProxyServer();
       return server.getSessionStats();
+    },
+    getMcpStatus: () => {
+      return getMcpServerStatus();
     }
   });
   setTrayTooltip(`Kiro 账号管理器 v${electron.app.getVersion()}`);
@@ -17133,9 +18534,10 @@ function initTray() {
 function createWindow() {
   mainWindow = new electron.BrowserWindow({
     title: `Kiro v${electron.app.getVersion()}`,
+    width: 1200,
+    height: 800,
     minWidth: 800,
     minHeight: 600,
-    fullscreen: true,
     show: false,
     autoHideMenuBar: true,
     icon,
@@ -17146,28 +18548,9 @@ function createWindow() {
       nodeIntegration: false
     }
   });
-  let resizeTimer = null;
-  mainWindow.on("resize", () => {
-    if (!mainWindow || mainWindow.isDestroyed()) return;
-    if (resizeTimer) clearTimeout(resizeTimer);
-    resizeTimer = setTimeout(() => {
-      if (!mainWindow || mainWindow.isDestroyed()) return;
-      const display = electron.screen.getPrimaryDisplay();
-      const { width, height } = display.workAreaSize;
-      const [currentWidth, currentHeight] = mainWindow.getSize();
-      if (currentWidth !== width || currentHeight !== height) {
-        console.log(`[Window] Resizing to match screen: ${width}x${height}`);
-        mainWindow.setSize(width, height);
-        mainWindow.center();
-      }
-    }, 500);
-  });
   mainWindow.on("ready-to-show", () => {
     mainWindow?.setTitle(`Kiro 账号管理器 v${electron.app.getVersion()}`);
     mainWindow?.show();
-    const display = electron.screen.getPrimaryDisplay();
-    const { width, height } = display.workAreaSize;
-    mainWindow?.setSize(width, height);
     mainWindow?.center();
     setTimeout(async () => {
       try {
@@ -17408,6 +18791,26 @@ electron.app.whenReady().then(async () => {
   });
   electron.ipcMain.on("update-tray-language", (_event, language) => {
     updateTrayLanguage(language);
+  });
+  electron.ipcMain.handle("get-mcp-status", () => {
+    return getMcpServerStatus();
+  });
+  electron.ipcMain.handle("get-mcp-config", async () => {
+    try {
+      const config = await getMcpConfig();
+      return { success: true, data: config };
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : "Unknown error" };
+    }
+  });
+  electron.ipcMain.handle("update-mcp-config", async (_event, updates) => {
+    try {
+      await updateMcpConfig(updates);
+      updateTrayMenu();
+      return { success: true };
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : "Unknown error" };
+    }
   });
   electron.ipcMain.on(
     "close-confirm-response",
@@ -21020,6 +22423,23 @@ electron.app.whenReady().then(async () => {
     }
   };
   createWindow();
+  try {
+    await initMcpServer({
+      getProxyServer: () => proxyServer,
+      updateTrayMenu: () => updateTrayMenu(),
+      store,
+      getCurrentAccount: () => currentProxyAccount,
+      getAccountData: () => {
+        const accountData = store?.get("accountData");
+        return accountData || null;
+      },
+      fetchKiroModels,
+      getProxyLogStore: () => proxyLogStore
+    });
+    console.log("[MCP] Server initialized");
+  } catch (error) {
+    console.error("[MCP] Failed to initialize server:", error);
+  }
   electron.screen.on("display-metrics-changed", (_event, display) => {
     if (!mainWindow || mainWindow.isDestroyed()) return;
     const primaryDisplay = electron.screen.getPrimaryDisplay();
@@ -21089,6 +22509,12 @@ electron.app.on("will-quit", async (event) => {
         await proxyLogStore2.flushSaveNow();
       } catch (err) {
         console.error("[Exit] Failed to flush proxy logs:", err);
+      }
+      try {
+        await stopMcpServer();
+        console.log("[Exit] MCP server stopped");
+      } catch (err) {
+        console.error("[Exit] Failed to stop MCP server:", err);
       }
       console.log("[Exit] Data saved successfully");
     } catch (error) {
